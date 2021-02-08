@@ -37,7 +37,7 @@ class DSSM(nn.Module):
         embed1 = self.phi1_norm(self.phi1_linear(x1))
 
 
-        # TODO what if just s_prime
+        # TODO what if just s_prime. Will easly see the button configuration
         x2 = self.relu(self.phi2_conv1(s_prime - s))
         x2 = self.relu(self.phi2_conv2(x2))
         x2 = torch.flatten(x2, start_dim=1)

@@ -1,0 +1,1 @@
+{"dataset": "datasets/all_1000/", "batch_size": 64, "n_epochs": 3, "n_epochs_run": 3, "best_epoch": 2, "best_test_acc": 0.014279513888888888, "time_str": "0 hours 0 minutes 14 seconds", "device": "cpu"}

@@ -14,3 +14,10 @@ class DatasetFromPickle(Dataset):
 
     def __len__(self):
         return len(self.data)
+
+def format_time(seconds):
+    time = round(seconds)
+    hours = time // 3600
+    minutes = (time % 3600) // 60
+    secs = time % 60
+    return f'{hours} hours {minutes} minutes {secs} seconds'
