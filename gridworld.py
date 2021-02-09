@@ -21,7 +21,7 @@ class GridWorld(gym.Env):
     name2action = {k: v for v, k in enumerate(action2name)}
     action2delta = np.array([[-1, 0], [1, 0], [0, -1], [0, 1], [0, 0]], dtype=np.int)
 
-    def __init__(self, height=5, width=5, n_buttons=3, button_pos=None, pixels_per_tile=50):
+    def __init__(self, height=5, width=5, n_buttons=3, button_pos=None, pixels_per_tile=50, seed=None):
         """
         :param height: height of the world (in tiles)
         :param width: width of the world (in tiles)
@@ -35,6 +35,9 @@ class GridWorld(gym.Env):
         self.width = width
         self.n_buttons = n_buttons
         self.button_pos = button_pos
+        if seed is not None:
+            np.random.seed(seed)
+        self.seed = seed
         if self.button_pos is None:
             self.button_pos = []
             idx = np.random.choice(height * width, n_buttons, replace=False)

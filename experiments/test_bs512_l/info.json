@@ -1,0 +1,10 @@
+{
+    "dataset": "datasets/all_1000/",
+    "batch_size": 512,
+    "n_epochs": 30,
+    "n_epochs_run": 10,
+    "best_epoch": 3,
+    "best_test_acc": 0.6985538563829787,
+    "time_str": "0 hours 1 minutes 26 seconds",
+    "device": "cuda"
+}
