@@ -11,7 +11,9 @@ def repeat_upsample(rgb_array, k=1, l=1):
 
 def rgb_embed(bool_vect):
     rgb = np.array([0, 0, 0], dtype=np.int8)
-    ...
+    # TODO
+    n_buttons = len(bool_vect) // 2
+
     return rgb
 
 def get_grid(state, pixels_per_tile=10):
@@ -20,6 +22,10 @@ def get_grid(state, pixels_per_tile=10):
     grid = np.zeros((height, width, 3), dtype=np.int8)
     for h in range(height):
         for w in range(width):
+            # TODO
+            pass
+
+
     h, w = self.pos
     grid[h, w, 0] += 200
     for ind, b_pos in enumerate(self.button_pos):

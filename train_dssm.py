@@ -80,10 +80,10 @@ for epoch in tqdm_range:
         loss.backward()
         optimizer.step()
 
-        train_loss += loss.cpu().item()
+        train_loss += loss.item()
         _, predicted = torch.max(output.data, 1)
         train_total += batch_size
-        train_correct += predicted.eq(target.data).sum().cpu().item()
+        train_correct += predicted.eq(target.data).sum().item()
     train_losses.append(train_loss / train_total)
     train_accs.append(train_correct / train_total)
 
@@ -99,10 +99,10 @@ for epoch in tqdm_range:
         output = model((s, s_prime))
         loss = criterion(output, target)
 
-        test_loss += loss.cpu().item()
+        test_loss += loss.item()
         _, predicted = torch.max(output.data, 1)
         test_total += batch_size
-        test_correct += predicted.eq(target.data).sum().cpu().item()
+        test_correct += predicted.eq(target.data).sum().item()
     test_losses.append(test_loss / test_total)
     test_accs.append(test_correct / test_total)
 

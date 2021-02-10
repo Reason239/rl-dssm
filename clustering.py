@@ -31,13 +31,14 @@ print(f'Data shape: {x.shape}')
 
 kmeans = KMeans(n_clusters=8, verbose=0, random_state=42)
 kmeans.fit(x)
+print('Fitting done')
 
 centers = kmeans.cluster_centers_
 center = centers[0]
 distances = ((x - center)**2).sum(axis=1)
 ind_sorted = sorted(list(range(len(x))), key=distances.__getitem__)
 
+# TODO: прислать картинки (или в WandN)
 
-print('Fitting done')
 
 
