@@ -15,19 +15,23 @@ time_start = timer()
 np.random.seed(42)
 dataset_path = 'datasets/all_1000/'
 experiment_path_base = 'experiments/'
-experiment_name = 'test_16_4_l'
+experiment_name = 'test_32_8_l'
+save = True
 # TODO try bigger batch_size
 # batch_size = 256
-n_trajectories = 16
-pairs_per_trajectory = 4
+n_trajectories = 32
+pairs_per_trajectory = 8
 batch_size = n_trajectories * pairs_per_trajectory
 n_epochs = 30
 patience = max(1, n_epochs // 5)
 embed_size = 64
 device = 'cuda'
+if device == 'cuda':
+    torch.cuda.empty_cache()
 
-experiment_path = pathlib.Path(experiment_path_base + experiment_name)
-experiment_path.mkdir(parents=True, exist_ok=True)
+if save:
+    experiment_path = pathlib.Path(experiment_path_base + experiment_name)
+    experiment_path.mkdir(parents=True, exist_ok=True)
 
 # prepare datasets
 # train_dataset = DatasetFromPickle(dataset_path + 'train.pkl')
@@ -79,7 +83,7 @@ for epoch in tqdm_range:
         train_loss += loss.cpu().item()
         _, predicted = torch.max(output.data, 1)
         train_total += batch_size
-        train_correct += predicted.eq(target.data).cpu().sum().item()
+        train_correct += predicted.eq(target.data).sum().cpu().item()
     train_losses.append(train_loss / train_total)
     train_accs.append(train_correct / train_total)
 
@@ -98,7 +102,7 @@ for epoch in tqdm_range:
         test_loss += loss.cpu().item()
         _, predicted = torch.max(output.data, 1)
         test_total += batch_size
-        test_correct += predicted.eq(target.data).cpu().sum().item()
+        test_correct += predicted.eq(target.data).sum().cpu().item()
     test_losses.append(test_loss / test_total)
     test_accs.append(test_correct / test_total)
 
@@ -106,7 +110,8 @@ for epoch in tqdm_range:
     if test_accs[-1] > best_test_acc:
         best_test_acc = test_accs[-1]
         best_epoch = epoch
-        torch.save(model.state_dict(), experiment_path / 'best_model.pth')
+        if save:
+            torch.save(model.state_dict(), experiment_path / 'best_model.pth')
     tqdm_range.set_postfix(train_loss=train_losses[-1], test_loss=test_losses[-1], test_acc=test_accs[-1])
 
     # stop if test accuracy isn't going up
@@ -120,18 +125,19 @@ time_end = timer()
 time_str = format_time(time_end - time_start)
 
 # save experiment data
-metrics = {'train_losses': train_losses, 'test_losses': test_losses,
-           'train_accs': train_accs, 'test_accs': test_accs}
-with open(experiment_path / 'metrics.pkl', 'wb') as f:
-    pickle.dump(metrics, f)
+if save:
+    metrics = {'train_losses': train_losses, 'test_losses': test_losses,
+               'train_accs': train_accs, 'test_accs': test_accs}
+    with open(experiment_path / 'metrics.pkl', 'wb') as f:
+        pickle.dump(metrics, f)
 
-info = {'dataset': dataset_path, 'batch_size': batch_size, 'n_trajectories': n_trajectories,
-        'pairs_per_trajectory': pairs_per_trajectory, 'n_epochs': n_epochs, 'n_epochs_run': n_epochs_run,
-        'best_epoch': best_epoch, 'best_test_acc': best_test_acc, 'time_str': time_str, 'device': str(device)}
-with open(experiment_path / 'info.json', 'w') as f:
-    json.dump(info, f, indent=4)
+    info = {'dataset': dataset_path, 'batch_size': batch_size, 'n_trajectories': n_trajectories,
+            'pairs_per_trajectory': pairs_per_trajectory, 'n_epochs': n_epochs, 'n_epochs_run': n_epochs_run,
+            'best_epoch': best_epoch, 'best_test_acc': best_test_acc, 'time_str': time_str, 'device': str(device)}
+    with open(experiment_path / 'info.json', 'w') as f:
+        json.dump(info, f, indent=4)
 
-with open(experiment_path_base + 'summary.csv', 'a') as f:
-    f.write(experiment_name + f',{best_test_acc}')
+    with open(experiment_path_base + 'summary.csv', 'a') as f:
+        f.write(experiment_name + f',{best_test_acc}')
 
 print('Done')

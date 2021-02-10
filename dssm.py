@@ -26,22 +26,28 @@ class DSSM(nn.Module):
         # alpha (temperature scale)
         self.scale = torch.nn.Parameter(torch.ones((1,)))
 
-    def forward(self, x):
-        s, s_prime = x
-
-        # s, s_prime = embed(s), embed(s_prime)
-
+    def phi1(self, s):
         x1 = self.relu(self.phi1_conv1(s))
         x1 = self.relu(self.phi1_conv2(x1))
         x1 = torch.flatten(x1, start_dim=1)
         embed1 = self.phi1_norm(self.phi1_linear(x1))
+        return embed1
 
-
-        # TODO what if just s_prime. Will easly see the button configuration
-        x2 = self.relu(self.phi2_conv1(s_prime - s))
+    def phi2(self, diff):
+        x2 = self.relu(self.phi2_conv1(diff))
         x2 = self.relu(self.phi2_conv2(x2))
         x2 = torch.flatten(x2, start_dim=1)
         embed2 = self.phi2_norm(self.phi2_linear(x2))
+        return embed2
+
+    def forward(self, x):
+        s, s_prime = x
+        # s, s_prime = embed(s), embed(s_prime)
+
+        embed1 = self.phi1(s)
+
+        # TODO what if just s_prime. Will easily see the button configuration
+        embed2 = self.phi2(s_prime - s)
 
         # calculate inner products (Gramm matrix)
         gramm = torch.matmul(embed1, torch.transpose(embed2, 0, 1))

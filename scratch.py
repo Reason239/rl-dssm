@@ -6,7 +6,5 @@ from tqdm import tqdm
 import time
 import json
 
-idx_path = 'datasets/all_1000/idx_train.json'
-with open(idx_path, 'r') as f:
-    idx = json.load(f)
-print(type(list(idx.keys())[0]))
+a = np.array([[1, 2], [3, 4]])
+print(a.sum(axis=0))

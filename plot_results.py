@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import pickle
 
 experiment_path = 'experiments/'
-experiment_name = 'test_bs128_l'
+experiment_name = 'test_32_8_l'
 
 with open(experiment_path + experiment_name + '/metrics.pkl', 'rb') as f:
     metrics = pickle.load(f)

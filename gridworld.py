@@ -9,6 +9,28 @@ def repeat_upsample(rgb_array, k=1, l=1):
     # if the input image is of shape (m,n,3), the output image will be of shape (k*m, l*n, 3)
     return np.repeat(np.repeat(rgb_array, k, axis=0), l, axis=1)
 
+def rgb_embed(bool_vect):
+    rgb = np.array([0, 0, 0], dtype=np.int8)
+    ...
+    return rgb
+
+def get_grid(state, pixels_per_tile=10):
+    depth, height, width = state.shape
+    n_buttons = depth // 2
+    grid = np.zeros((height, width, 3), dtype=np.int8)
+    for h in range(height):
+        for w in range(width):
+    h, w = self.pos
+    grid[h, w, 0] += 200
+    for ind, b_pos in enumerate(self.button_pos):
+        h, w = b_pos
+        if ind >= self.next_button:
+            grid[h, w, 1] += 100 + 155 * (n_buttons - ind) // n_buttons
+        else:
+            grid[h, w, 2] += 100 + 155 * (n_buttons - ind) // n_buttons
+    grid = repeat_upsample(grid, pixels_per_tile, pixels_per_tile)
+    return grid
+
 
 class GridWorld(gym.Env):
     """
