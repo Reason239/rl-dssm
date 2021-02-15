@@ -13,6 +13,9 @@ class DatasetFromPickle(Dataset):
     def __getitem__(self, idx):
         return tuple(torch.from_numpy(s.astype(np.float32)) for s in self.data[idx])
 
+    def get_raw(self, idx):
+        return self.data[idx]
+
     def __len__(self):
         return len(self.data)
 

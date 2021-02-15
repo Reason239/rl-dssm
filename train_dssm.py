@@ -13,14 +13,14 @@ from timeit import default_timer as timer
 
 time_start = timer()
 np.random.seed(42)
-dataset_path = 'datasets/all_1000/'
+dataset_path = 'datasets/new_1000/'
 experiment_path_base = 'experiments/'
-experiment_name = 'test_32_8_l'
+experiment_name = 'new_16_4_l'
 save = True
 # TODO try bigger batch_size
 # batch_size = 256
-n_trajectories = 32
-pairs_per_trajectory = 8
+n_trajectories = 16
+pairs_per_trajectory = 4
 batch_size = n_trajectories * pairs_per_trajectory
 n_epochs = 30
 patience = max(1, n_epochs // 5)

@@ -3,12 +3,11 @@ import numpy as np
 from tqdm import tqdm
 import pickle
 from itertools import combinations
-import json
 import pathlib
 
 
 np.random.seed(42)
-data_path = 'datasets/all_1000/'
+data_path = 'datasets/new_1000/'
 n_envs_train = 1000
 n_envs_test = 200
 # TODO try eps=0

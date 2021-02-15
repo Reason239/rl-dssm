@@ -9,33 +9,35 @@ def repeat_upsample(rgb_array, k=1, l=1):
     # if the input image is of shape (m,n,3), the output image will be of shape (k*m, l*n, 3)
     return np.repeat(np.repeat(rgb_array, k, axis=0), l, axis=1)
 
-def rgb_embed(bool_vect):
-    rgb = np.array([0, 0, 0], dtype=np.int8)
-    # TODO
-    n_buttons = len(bool_vect) // 2
 
+def rgb_embed(bool_vect):
+    rgb = np.array([0, 0, 0], dtype=np.uint8)
+    n_buttons = len(bool_vect) // 2
+    if bool_vect[0]:
+        rgb[0] += 200
+    ind_max = np.argmax(bool_vect[1:]) + 1
+    ind_button = (ind_max - 1) // 2
+    if bool_vect[ind_max]:
+        if ind_max % 2 == 0:
+            rgb[1] += 100 + 155 * (n_buttons - ind_button) // n_buttons
+        else:
+            rgb[2] += 100 + 155 * (n_buttons - ind_button) // n_buttons
     return rgb
+
 
 def get_grid(state, pixels_per_tile=10):
     depth, height, width = state.shape
-    n_buttons = depth // 2
-    grid = np.zeros((height, width, 3), dtype=np.int8)
+    grid = np.zeros((height, width, 3), dtype=np.uint8)
     for h in range(height):
         for w in range(width):
-            # TODO
-            pass
-
-
-    h, w = self.pos
-    grid[h, w, 0] += 200
-    for ind, b_pos in enumerate(self.button_pos):
-        h, w = b_pos
-        if ind >= self.next_button:
-            grid[h, w, 1] += 100 + 155 * (n_buttons - ind) // n_buttons
-        else:
-            grid[h, w, 2] += 100 + 155 * (n_buttons - ind) // n_buttons
+            grid[h, w, :] = rgb_embed(state[:, h, w])
     grid = repeat_upsample(grid, pixels_per_tile, pixels_per_tile)
     return grid
+
+
+def join_grids(grid1, grid2, pixels_between=10):
+    sep = np.full((len(grid1), pixels_between, 3), 255, dtype=np.uint8)
+    return np.concatenate((grid1, sep, grid2), axis=1)
 
 
 class GridWorld(gym.Env):
@@ -89,7 +91,7 @@ class GridWorld(gym.Env):
         obs[0, h, w] = 1
         for ind, b_pos in enumerate(self.button_pos):
             h, w = b_pos
-            if ind <= self.next_button:
+            if ind < self.next_button:
                 obs[2 * ind + 1, h, w] = 1
             else:
                 obs[2 * ind + 2, h, w] = 1
