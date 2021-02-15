@@ -13,11 +13,11 @@ import pathlib
 dataset_path = 'datasets/new_1000/'
 experiment_path_base = 'experiments/'
 experiment_name = 'new_16_4_l'
-save_path = pathlib.Path(experiment_path_base + experiment_name + '/clustering')
+save_path = pathlib.Path(experiment_path_base + experiment_name + '/clustering2')
 save_path.mkdir(parents=True, exist_ok=True)
 batch_size = 256
 embed_size = 64
-n_clusters = 5
+n_clusters = 100
 n_cols = 6
 n_rows = 10
 figsize = (14, 14)
