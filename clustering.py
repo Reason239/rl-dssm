@@ -1,7 +1,9 @@
 from utils import DatasetFromPickle
-from gridworld import get_grid, join_grids
+from gridworld import get_grid, join_grids, get_colors, is_final, is_starting, n_pressed
 from dssm import DSSM
 
+from collections import Counter, defaultdict
+from pprint import pprint
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
@@ -60,6 +62,8 @@ labels = raw_labels[indices]
 print(f'Unique data shape: {x.shape}')
 
 centers = kmeans.cluster_centers_
+
+
 def make_plots():
     for ind_cluster, center in tqdm(enumerate(centers)):
         fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=figsize)
@@ -84,14 +88,45 @@ def make_plots():
         # plt.tight_layout()
         plt.savefig(fname=save_path / f'cluster_{ind_cluster}.png')
 
+
 # TODO: прислать картинки (или в WandN)
 
 def compute_statistics():
-    for ind_cluster, center in tqdm(enumerate(centers)):
+    info = [{} for c in centers]
+    for ind_cluster, (center, info_dict) in tqdm(enumerate(zip(centers, info)), total=len(centers)):
         raw_mask = (raw_labels == ind_cluster)
         cur_x_raw = x_raw[raw_mask]
         cur_raw_indices = np.arange(len(x_raw))[raw_mask]
+        n_elements = raw_mask.sum()
+        s_colors = defaultdict(list)
+        s_prime_colors = defaultdict(list)
+        n_starting = 0
+        n_final = 0
+        n_pressed_s = []
+        n_pressed_s_prime = []
         for ind in cur_raw_indices:
             s, s_prime = train_dataset.get_raw(ind)
             grid_s = get_grid(s, pixels_per_tile=1)
-            grid_s_prime = get_grid(s_prime, pixels_per_tile=pixels_per_tile)
+            grid_s_prime = get_grid(s_prime, pixels_per_tile=1)
+            for clr, n in get_colors(grid_s).items():
+                s_colors[clr].append(n)
+            for clr, n in get_colors(grid_s_prime).items():
+                s_prime_colors[clr].append(n)
+            n_starting += is_starting(grid_s)
+            n_final += is_final(grid_s_prime)
+            n_pressed_s.append(n_pressed(grid_s))
+            n_pressed_s_prime.append(n_pressed(grid_s_prime))
+        info_dict['color_means'] = {np.array(arr).mean() for clr, arr in s_colors.items() if clr != 'black'}
+        info_dict['color_means_prime'] = {np.array(arr).mean() for clr, arr in s_prime_colors.items() if clr != 'black'}
+        info_dict['color_stds'] = {np.array(arr).std() for clr, arr in s_colors.items() if clr != 'black'}
+        info_dict['color_stds_prime'] = {np.array(arr).std() for clr, arr in s_prime_colors.items() if clr != 'black'}
+        n_pressed_s, n_pressed_s_prime = np.array(n_pressed_s), np.array(n_pressed_s_prime)
+        info_dict['n_pressed_mean'] = n_pressed_s.mean()
+        info_dict['n_pressed_mean_prime'] = n_pressed_s_prime.mean()
+        info_dict['n_pressed_std'] = n_pressed_s.mean()
+        info_dict['n_pressed_std_prime'] = n_pressed_s_prime.std()
+        info_dict['ratio_starting'] = n_starting / n_elements
+        info_dict['ratio_final'] = n_final / n_elements
+    # TODO
+    # now make plots and bar diagrams
+    # also save it as txt

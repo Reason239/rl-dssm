@@ -1,3 +1,4 @@
+from collections import Counter
 import gym
 from gym import spaces
 from gym.envs.classic_control.rendering import SimpleImageViewer
@@ -29,8 +30,24 @@ bool2color = {(False, False, False): 'black', (False, False, True): 'blue', (Fal
               (True, False, False): 'red', (True, False, True): 'purple', (True, True, False): 'orange'}
 
 
-def color(rgb):
+def get_color(rgb):
     return bool2color[tuple(rgb)]
+
+
+def get_colors(grid):
+    return Counter(get_color(rgb) for rgb in grid.reshape((-1, 3)))
+
+
+def is_starting(grid):
+    return grid[0, 0, 0] and not np.any(grid[:, :, 2])
+
+
+def is_final(grid):
+    return not np.any(grid[:, :, 1])
+
+
+def n_pressed(grid):
+    return (grid[:, :, 2] > 0).sum()
 
 
 def get_grid(state, pixels_per_tile=10):

@@ -6,7 +6,5 @@ from tqdm import tqdm
 import time
 import json
 import matplotlib.pyplot as plt
+from gridworld import *
 
-
-a = np.array([True, False, True])
-print(np.where(a)[0], np.where(a)[1])
