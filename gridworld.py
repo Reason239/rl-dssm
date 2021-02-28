@@ -25,6 +25,14 @@ def rgb_embed(bool_vect):
     return rgb
 
 
+bool2color = {(False, False, False): 'black', (False, False, True): 'blue', (False, True, False): 'green',
+              (True, False, False): 'red', (True, False, True): 'purple', (True, True, False): 'orange'}
+
+
+def color(rgb):
+    return bool2color[tuple(rgb)]
+
+
 def get_grid(state, pixels_per_tile=10):
     depth, height, width = state.shape
     grid = np.zeros((height, width, 3), dtype=np.uint8)
