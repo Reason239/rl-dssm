@@ -26,12 +26,35 @@ def rgb_embed(bool_vect):
     return rgb
 
 
+def get_stage_and_pos(state):
+    depth = state.shape[0]
+    odd = np.arange(1, depth, 2)
+    even = np.arange(2, depth, 2)
+    stage = 0
+    pressed = np.any(state[odd, :, :], axis=0)
+    unpressed = np.any(state[even, :, :], axis=0)
+    stage += 3 * pressed.sum()
+    pos = np.argwhere(state[0, :, :])[0]
+    # print(pos)
+    # print(pressed.shape)
+    # print(state[:, :, even].shape)
+    # print(pressed[pos])
+    if pressed[pos[0], pos[1]]:
+        stage -= 1
+    elif unpressed[pos[0], pos[1]]:
+        stage += 1
+    # if stage == 9:
+    #     print(pressed)
+    #     print(unpressed)
+    #     print(pos)
+    return stage, pos
+
 bool2color = {(False, False, False): 'black', (False, False, True): 'blue', (False, True, False): 'green',
               (True, False, False): 'red', (True, False, True): 'purple', (True, True, False): 'orange'}
 
 
 def get_color(rgb):
-    return bool2color[tuple(rgb)]
+    return bool2color[tuple(rgb > 0)]
 
 
 def get_colors(grid):
