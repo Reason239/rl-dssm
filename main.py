@@ -7,7 +7,7 @@ np.random.seed(42)
 env = GridWorld(5, 5, 3)
 # rec = VideoRecorder(env, base_path='./videos/test1')
 env.reset()
-t = 0.1
+t = 1
 eps=0.1
 env.unwrapped.render()
 # rec.capture_frame()

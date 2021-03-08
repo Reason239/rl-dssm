@@ -1,8 +1,10 @@
+from gridworld import GridWorld, get_grid
 from torch.utils.data import Dataset
 import torch
 import numpy as np
 import pickle
 import json
+import matplotlib.pyplot as plt
 
 
 class DatasetFromPickle(Dataset):
@@ -67,3 +69,30 @@ def format_time(seconds):
     minutes = (time % 3600) // 60
     secs = time % 60
     return f'{hours} hours {minutes} minutes {secs} seconds'
+
+
+def plot_gridworld(n_rows=2, n_cols=3, figsize=(10, 6), eps=0, save_path='gridworld_demo.svg', seed=42):
+    total = n_rows * n_cols
+    np.random.seed(seed)
+    env = GridWorld(5, 5, 3)
+    obs = env.reset()
+    done = False
+    grids = [get_grid(obs)]
+    while not done:
+        action = env.get_expert_action(eps=eps)
+        obs, _, done, _ = env.step(action)
+        grids.append(get_grid(obs))
+    if total < len(grids):
+        display_ind = np.linspace(0, len(grids) - 1, total, dtype=int)
+        grids = [grids[i] for i in display_ind]
+    fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=figsize)
+    fig.suptitle('Example of an expert trajectory')
+    for r in range(n_rows):
+        for c in range(n_cols):
+            ind = r * n_cols + c
+            ax = axes[r, c]
+            ax.set_axis_off()
+            if ind < len(grids):
+                grid = grids[ind]
+                ax.imshow(grid)
+    plt.savefig(save_path)
