@@ -12,4 +12,6 @@ from scipy.stats import entropy
 
 from utils import plot_gridworld
 
-plot_gridworld(3, 5, (5, 3), 0, 'test_plot.svg', 0)
+# plot_gridworld(3, 5, (5, 3), 0, 'test_plot.svg', 0)
+a = np.array([1, 2, 3])
+b = {a: 3}
