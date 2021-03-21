@@ -121,6 +121,11 @@ class GridWorld(gym.Env):
             idx = np.random.choice(height * width, n_buttons, replace=False)
             for index in idx:
                 self.button_pos.append(np.array([index // width, index % width], dtype=np.int))
+            self.button_idx = tuple(idx)
+        else:
+            self.button_idx = tuple(a * width + b for (a, b) in button_pos)
+
+        button_inds = []
         self.next_button = None
         self.pos = None
         self.viewer = SimpleImageViewer()
@@ -154,7 +159,6 @@ class GridWorld(gym.Env):
             done - bool, True if the last button is pressed
             info - empty dict
         """
-        info = {}
         if self.action2name[action] == 'PRESS':
             if np.all(self.pos == self.button_pos[self.next_button]):
                 self.next_button += 1
@@ -162,6 +166,7 @@ class GridWorld(gym.Env):
         obs = self.get_observation()
         done = (self.next_button == self.n_buttons)
         reward = float(done)
+        info = self.get_info()
         return obs, reward, done, info
 
     def reset(self):
@@ -215,3 +220,7 @@ class GridWorld(gym.Env):
             else:
                 action = self.name2action['LEFT']
         return action
+
+    def get_info(self):
+        info = {'state_tuple': self.button_idx + (self.next_button,) + tuple(self.pos)}
+        return info

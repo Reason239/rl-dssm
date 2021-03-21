@@ -1,4 +1,4 @@
-from utils import DatasetFromPickle, format_time, BatchIterator
+from utils import DatasetFromPickle, format_time, BatchIterator, SmallBatchIterator
 from dssm import DSSM
 
 import numpy as np
@@ -13,9 +13,9 @@ from timeit import default_timer as timer
 
 time_start = timer()
 np.random.seed(42)
-dataset_path = 'datasets/new_1000/'
+dataset_path = 'datasets/states_1000_1/'
 experiment_path_base = 'experiments/'
-experiment_name = 'new_16_4_l'
+experiment_name = 'states_1000_1_test'
 save = True
 # TODO try bigger batch_size
 # batch_size = 256
@@ -39,16 +39,17 @@ if save:
 #
 # train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 # test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
-train_batches = BatchIterator(dataset_path + 'train.pkl', dataset_path + 'idx_train.pkl',
-                              n_trajectories, pairs_per_trajectory)
-test_batches = BatchIterator(dataset_path + 'test.pkl', dataset_path + 'idx_test.pkl',
-                             n_trajectories, pairs_per_trajectory)
+# train_batches = BatchIterator(dataset_path + 'train.pkl', dataset_path + 'idx_train.pkl',
+#                               n_trajectories, pairs_per_trajectory)
+# test_batches = BatchIterator(dataset_path + 'test.pkl', dataset_path + 'idx_test.pkl',
+#                              n_trajectories, pairs_per_trajectory)
+train_batches = SmallBatchIterator(dataset_path + 'train.pkl', dataset_path + 's_ind_train.pkl')
+test_batches = SmallBatchIterator(dataset_path + 'test.pkl', dataset_path + 's_ind_test.pkl')
 
 # prepare the model
 model = DSSM(in_channels=7, height=5, width=5, embed_size=embed_size)
 criterion = nn.CrossEntropyLoss()
 # target = torch.arange(0, batch_size).to(device)
-target = torch.arange(0, batch_size).to(device)
 optimizer = torch.optim.Adam(model.parameters())
 
 train_losses = []
@@ -74,6 +75,7 @@ for epoch in tqdm_range:
         s = s.to(device)
         s_prime = s_prime.to(device)
         output = model((s, s_prime))
+        target = torch.arange(0, len(s)).to(device)
         loss = criterion(output, target)
 
         optimizer.zero_grad()
@@ -97,6 +99,7 @@ for epoch in tqdm_range:
         s = s.to(device)
         s_prime = s_prime.to(device)
         output = model((s, s_prime))
+        target = torch.arange(0, len(s)).to(device)
         loss = criterion(output, target)
 
         test_loss += loss.item()

@@ -62,6 +62,43 @@ class BatchIterator:
     def refresh(self):
         self.cnt = 0
 
+class SmallBatchIterator:
+    def __init__(self, data_path, states_ind_path, size=None):
+        with open(data_path, 'rb') as f:
+            self.data = pickle.load(f)
+        with open(states_ind_path, 'rb') as f:
+            self.s_ind = pickle.load(f)
+        if size is None:
+            size = len(self.s_ind)
+        self.cnt = 0
+        self.size = size
+        self.s_tuples = list(self.s_ind.keys())
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.cnt < self.size:
+            self.cnt += 1
+            batch_s = []
+            batch_s_prime = []
+            batch_s_tuple = self.s_tuples[np.random.randint(0, len(self.s_tuples))]
+            pair_inds = self.s_ind[batch_s_tuple]
+            batch_s += [torch.from_numpy(self.data[i][0].astype(np.float32)) for i in pair_inds]
+            batch_s_prime += [torch.from_numpy(self.data[i][1].astype(np.float32)) for i in pair_inds]
+            s = torch.stack(batch_s, dim=0)
+            s_prime = torch.stack(batch_s_prime, dim=0)
+            return (s, s_prime)
+        else:
+            raise StopIteration
+
+    def __len__(self):
+        return self.size
+
+    def refresh(self):
+        self.cnt = 0
+
+
 
 def format_time(seconds):
     time = round(seconds)
