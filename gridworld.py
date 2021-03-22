@@ -49,6 +49,7 @@ def get_stage_and_pos(state):
     #     print(pos)
     return stage, pos
 
+
 bool2color = {(False, False, False): 'black', (False, False, True): 'blue', (False, True, False): 'green',
               (True, False, False): 'red', (True, False, True): 'purple', (True, True, False): 'orange'}
 
@@ -224,3 +225,28 @@ class GridWorld(gym.Env):
     def get_info(self):
         info = {'state_tuple': self.button_idx + (self.next_button,) + tuple(self.pos)}
         return info
+
+    def to_random_state(self, seed=239):
+        if seed:
+            np.random.seed(seed)
+        self.pos[0] = np.random.randint(0, self.height)
+        self.pos[1] = np.random.randint(0, self.width)
+        self.next_button = np.random.randint(0, self.n_buttons)
+        return self.get_observation()
+
+    def get_all_next_states(self):
+        backup = self.pos.copy(), self.next_button
+        states = []
+        for next_button in range(self.next_button, self.n_buttons):
+            for pos_h in range(self.height):
+                for pos_w in range(self.width):
+                    self.pos[0] = pos_h
+                    self.pos[1] = pos_w
+                    self.next_button = next_button
+                    states.append(self.get_observation())
+        self.next_button = self.n_buttons
+        self.pos[:] = self.button_pos[-1]
+        states.append(self.get_observation())
+
+        self.pos, self.next_button = backup
+        return states

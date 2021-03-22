@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import pickle
 
 experiment_path = 'experiments/'
-experiment_name = 'new_16_4_l'
+experiment_name = 'states_1_1000_test4'
 
 with open(experiment_path + experiment_name + '/metrics.pkl', 'rb') as f:
     metrics = pickle.load(f)
@@ -23,7 +23,7 @@ plt.legend()
 plt.subplot(212)
 plt.plot(train_accs, label='Train accuracy')
 plt.plot(test_accs, label='Test accuracy')
-plt.title(f'Accuracy (max_test={max(test_accs):.2f})')
+plt.title(f'Accuracy (max_test={max(test_accs) if test_accs else 0:.2f})')
 plt.ylabel('Accuracy')
 plt.xlabel('Epoch number')
 plt.legend()

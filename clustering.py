@@ -15,15 +15,15 @@ import pathlib
 import pickle
 from scipy.stats import entropy
 
-dataset_path = pathlib.Path('datasets/new_1000')
+dataset_path = pathlib.Path('datasets/states_1000_10')
 experiment_path_base = pathlib.Path('experiments')
-experiment_name = 'new_16_4_l'
-clustering_name = 'clustering2'
+experiment_name = 'states_1000_10_test3'
+clustering_name = 'clustering10'
 save_path = experiment_path_base / experiment_name / clustering_name
 save_path.mkdir(parents=True, exist_ok=True)
 batch_size = 256
 embed_size = 64
-n_clusters = 100
+n_clusters = 10
 n_cols = 6
 n_rows = 10
 figsize = (14, 14)
@@ -96,7 +96,7 @@ def make_plots():
         plt.savefig(fname=save_path / f'cluster_{ind_cluster}.png')
 
 
-# TODO: прислать картинки (или в WandN)
+# TODO: прислать картинки (или в WandB)
 colors = ['red', 'green', 'blue', 'orange', 'purple']
 
 

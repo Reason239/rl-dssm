@@ -99,10 +99,11 @@ def make_states_dict_dataset(data_path, n_envs_train, n_envs_test, n_runs_per_en
 
 if __name__ == '__main__':
     np.random.seed(42)
-    data_path = 'datasets/states_100_10/'
-    n_envs_train = 1000 // 10
-    n_envs_test = 200 // 10
-    n_runs_per_env = 10
+    data_path = 'datasets/states_1_1000/'
+    n_envs_train = 1
+    n_envs_test = 0
+    n_runs_per_env = 1000
     # TODO try eps=0
-    eps = 0.05
+    # eps = 0.05
+    eps = 0
     make_states_dict_dataset(data_path, n_envs_train, n_envs_test, n_runs_per_env, eps)

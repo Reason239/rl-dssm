@@ -13,19 +13,21 @@ from timeit import default_timer as timer
 
 time_start = timer()
 np.random.seed(42)
-dataset_path = 'datasets/states_1000_1/'
+dataset_path = 'datasets/states_1_1000/'
 experiment_path_base = 'experiments/'
-experiment_name = 'states_1000_1_test'
+experiment_name = 'states_1_1000_test4'
 save = True
 # TODO try bigger batch_size
 # batch_size = 256
+batches_per_update = 4
 n_trajectories = 16
 pairs_per_trajectory = 4
 batch_size = n_trajectories * pairs_per_trajectory
-n_epochs = 30
-patience = max(1, n_epochs // 5)
+n_epochs = 50
+patience = max(1, n_epochs // 5) * 10
 embed_size = 64
 device = 'cuda'
+do_eval = False
 if device == 'cuda':
     torch.cuda.empty_cache()
 
@@ -71,56 +73,65 @@ for epoch in tqdm_range:
     train_total = 0
     model.train()
     train_batches.refresh()
-    for s, s_prime in train_batches:
+    loss = 0
+    for ind, (s, s_prime) in enumerate(train_batches):
         s = s.to(device)
         s_prime = s_prime.to(device)
         output = model((s, s_prime))
         target = torch.arange(0, len(s)).to(device)
-        loss = criterion(output, target)
+        loss += criterion(output, target)
 
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        if (ind + 1) % batches_per_update == 0:
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            train_loss += loss.item()
+            loss = 0
 
-        train_loss += loss.item()
         _, predicted = torch.max(output.data, 1)
-        train_total += batch_size
+        train_total += len(s)
         train_correct += predicted.eq(target.data).sum().item()
     train_losses.append(train_loss / train_total)
     train_accs.append(train_correct / train_total)
 
     # eval
-    test_loss = 0
-    test_correct = 0
-    test_total = 0
-    model.eval()
-    test_batches.refresh()
-    for s, s_prime in test_batches:
-        s = s.to(device)
-        s_prime = s_prime.to(device)
-        output = model((s, s_prime))
-        target = torch.arange(0, len(s)).to(device)
-        loss = criterion(output, target)
+    if do_eval:
+        test_loss = 0
+        test_correct = 0
+        test_total = 0
+        model.eval()
+        test_batches.refresh()
+        for s, s_prime in test_batches:
+            s = s.to(device)
+            s_prime = s_prime.to(device)
+            output = model((s, s_prime))
+            target = torch.arange(0, len(s)).to(device)
+            loss = criterion(output, target)
 
-        test_loss += loss.item()
-        _, predicted = torch.max(output.data, 1)
-        test_total += batch_size
-        test_correct += predicted.eq(target.data).sum().item()
-    test_losses.append(test_loss / test_total)
-    test_accs.append(test_correct / test_total)
+            test_loss += loss.item()
+            _, predicted = torch.max(output.data, 1)
+            test_total += len(s)
+            test_correct += predicted.eq(target.data).sum().item()
+        test_losses.append(test_loss / test_total)
+        test_accs.append(test_correct / test_total)
 
-    # save model (best)
-    if test_accs[-1] > best_test_acc:
-        best_test_acc = test_accs[-1]
-        best_epoch = epoch
+        # save model (best)
+        if test_accs[-1] > best_test_acc:
+            best_test_acc = test_accs[-1]
+            best_epoch = epoch
+            if save:
+                torch.save(model.state_dict(), experiment_path / 'best_model.pth')
+        tqdm_range.set_postfix(train_loss=train_losses[-1], test_loss=test_losses[-1], test_acc=test_accs[-1])
+
+        # stop if test accuracy isn't going up
+        if epoch > best_epoch + patience:
+            n_epochs_run = epoch
+            break
+    else:
         if save:
             torch.save(model.state_dict(), experiment_path / 'best_model.pth')
-    tqdm_range.set_postfix(train_loss=train_losses[-1], test_loss=test_losses[-1], test_acc=test_accs[-1])
 
-    # stop if test accuracy isn't going up
-    if epoch > best_epoch + patience:
-        n_epochs_run = epoch
-        break
+
 else:
     # if not break:
     n_epochs_run = n_epochs

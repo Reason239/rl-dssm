@@ -62,8 +62,9 @@ class BatchIterator:
     def refresh(self):
         self.cnt = 0
 
+
 class SmallBatchIterator:
-    def __init__(self, data_path, states_ind_path, size=None):
+    def __init__(self, data_path, states_ind_path, size=None, cap=100):
         with open(data_path, 'rb') as f:
             self.data = pickle.load(f)
         with open(states_ind_path, 'rb') as f:
@@ -72,6 +73,7 @@ class SmallBatchIterator:
             size = len(self.s_ind)
         self.cnt = 0
         self.size = size
+        self.cap = cap
         self.s_tuples = list(self.s_ind.keys())
 
     def __iter__(self):
@@ -84,6 +86,9 @@ class SmallBatchIterator:
             batch_s_prime = []
             batch_s_tuple = self.s_tuples[np.random.randint(0, len(self.s_tuples))]
             pair_inds = self.s_ind[batch_s_tuple]
+            if len(pair_inds) > self.cap:
+                pair_inds = [pair_inds[i] for i in
+                             np.random.choice(np.arange(0, len(pair_inds)), self.cap, replace=False)]
             batch_s += [torch.from_numpy(self.data[i][0].astype(np.float32)) for i in pair_inds]
             batch_s_prime += [torch.from_numpy(self.data[i][1].astype(np.float32)) for i in pair_inds]
             s = torch.stack(batch_s, dim=0)
@@ -97,7 +102,6 @@ class SmallBatchIterator:
 
     def refresh(self):
         self.cnt = 0
-
 
 
 def format_time(seconds):
