@@ -54,3 +54,83 @@ class DSSM(nn.Module):
         output = self.scale * gramm
 
         return output
+
+
+def normalized(matrix, eps):
+    return matrix / (torch.sqrt(torch.sum(matrix ** 2, dim=1, keepdim=True)) + eps)
+
+
+class DSSMEmbed(nn.Module):
+    def __init__(self, dict_size=14, height=5, width=5, embed_size=64, state_embed_size=3, embed_conv_channels=None,
+                 n_z=5, eps=1e-4):
+        super().__init__()
+        self.relu = nn.ReLU()
+
+        # state embedding
+        self.state_embed = nn.Embedding(dict_size, state_embed_size, max_norm=1)
+        if embed_conv_channels is not None:
+            self.conv_embed = nn.Conv2d(in_channels=state_embed_size, out_channels=embed_conv_channels, kernel_size=3,
+                                        padding=1)
+        else:
+            self.conv_embed = None
+        self.eps = eps
+
+        # phi_1
+        in_channels = embed_conv_channels or state_embed_size
+        # batch * height * width * in_channels
+        self.phi1_conv1 = nn.Conv2d(in_channels=in_channels, out_channels=16, kernel_size=3, padding=1)
+        # batch * height * width * 16
+        self.phi1_conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, padding=1)
+        # batch * height * width * 32 -> flatten
+        self.phi1_linear = nn.Linear(height * width * 32, embed_size)
+
+        # phi_2 - same architecture as phi_1
+        self.phi2_conv1 = nn.Conv2d(in_channels=in_channels, out_channels=16, kernel_size=3, padding=1)
+        self.phi2_conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, padding=1)
+        self.phi2_linear = nn.Linear(height * width * 32, embed_size)
+
+        # z vectors
+        self.z_vectors = nn.Parameter(torch.randn(n_z, embed_size))
+
+        # alpha (temperature scale)
+        self.scale = torch.nn.Parameter(torch.ones((1,)))
+
+
+    def embed(self, s):
+        x = self.state_embed(s).permute(0, 3, 1, 2)
+        if self.conv_embed:
+            x = self.conv_embed(x)
+        return x
+
+    def phi1(self, s):
+        x1 = self.relu(self.phi1_conv1(s))
+        x1 = self.relu(self.phi1_conv2(x1))
+        x1 = torch.flatten(x1, start_dim=1)
+        x1 = self.phi1_linear(x1)
+        embed1 = normalized(x1, self.eps)
+        return embed1
+
+    def phi2(self, diff):
+        x2 = self.relu(self.phi2_conv1(diff))
+        x2 = self.relu(self.phi2_conv2(x2))
+        x2 = torch.flatten(x2, start_dim=1)
+        x2 = self.phi2_linear(x2)
+        embed2 = normalized(x2, self.eps)
+        return embed2
+
+    def forward(self, x):
+        s, s_prime = x
+        s, s_prime = self.embed(s), self.embed(s_prime)
+
+        embed1 = self.phi1(s)
+        embed2 = self.phi2(s_prime - s)
+
+        z_vectors_norm = normalized(self.z_vectors, 0)
+        z_inds = torch.argmax(torch.matmul(embed2, z_vectors_norm.T), dim=1)
+        z_matrix = z_vectors_norm[z_inds]
+
+        # calculate inner products (Gramm matrix)
+        gramm = torch.matmul(embed1, z_matrix.T)
+        output = torch.exp(self.scale) * gramm
+
+        return output

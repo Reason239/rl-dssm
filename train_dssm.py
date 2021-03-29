@@ -1,5 +1,5 @@
 from utils import DatasetFromPickle, format_time, BatchIterator, SmallBatchIterator
-from dssm import DSSM
+from dssm import DSSM, DSSMEmbed
 
 import numpy as np
 import torch
@@ -13,23 +13,28 @@ from timeit import default_timer as timer
 
 time_start = timer()
 np.random.seed(42)
-dataset_path = 'datasets/states_1_1000/'
+dataset_path = 'datasets/int_100/'
 experiment_path_base = 'experiments/'
-experiment_name = 'states_1_1000_test4'
+experiment_name = 'int_test1'
 save = True
 # TODO try bigger batch_size
 # batch_size = 256
-batches_per_update = 4
+batches_per_update = 1
 n_trajectories = 16
-pairs_per_trajectory = 4
+pairs_per_trajectory = 8
 batch_size = n_trajectories * pairs_per_trajectory
-n_epochs = 50
-patience = max(1, n_epochs // 5) * 10
+n_epochs = 60
+patience = max(1, n_epochs // 3)
 embed_size = 64
 device = 'cuda'
-do_eval = False
+do_eval = True
 if device == 'cuda':
     torch.cuda.empty_cache()
+dtype_for_torch = 'int'
+state_embed_size = 3
+embed_conv_channels = None
+n_z = 50
+dssm_eps = 1e-4
 
 if save:
     experiment_path = pathlib.Path(experiment_path_base + experiment_name)
@@ -41,17 +46,19 @@ if save:
 #
 # train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
 # test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
-# train_batches = BatchIterator(dataset_path + 'train.pkl', dataset_path + 'idx_train.pkl',
-#                               n_trajectories, pairs_per_trajectory)
-# test_batches = BatchIterator(dataset_path + 'test.pkl', dataset_path + 'idx_test.pkl',
-#                              n_trajectories, pairs_per_trajectory)
-train_batches = SmallBatchIterator(dataset_path + 'train.pkl', dataset_path + 's_ind_train.pkl')
-test_batches = SmallBatchIterator(dataset_path + 'test.pkl', dataset_path + 's_ind_test.pkl')
+train_batches = BatchIterator(dataset_path + 'train.pkl', dataset_path + 'idx_train.pkl',
+                              n_trajectories, pairs_per_trajectory, None, dtype_for_torch)
+test_batches = BatchIterator(dataset_path + 'test.pkl', dataset_path + 'idx_test.pkl',
+                             n_trajectories, pairs_per_trajectory, None, dtype_for_torch)
+# train_batches = SmallBatchIterator(dataset_path + 'train.pkl', dataset_path + 's_ind_train.pkl')
+# test_batches = SmallBatchIterator(dataset_path + 'test.pkl', dataset_path + 's_ind_test.pkl')
 
 # prepare the model
-model = DSSM(in_channels=7, height=5, width=5, embed_size=embed_size)
+# model = DSSM(in_channels=7, height=5, width=5, embed_size=embed_size)
+model = DSSMEmbed(dict_size=14, height=5, width=5, embed_size=embed_size, state_embed_size=state_embed_size,
+                  embed_conv_channels=embed_conv_channels, n_z=n_z, eps=dssm_eps)
 criterion = nn.CrossEntropyLoss()
-# target = torch.arange(0, batch_size).to(device)
+target = torch.arange(0, batch_size).to(device)
 optimizer = torch.optim.Adam(model.parameters())
 
 train_losses = []
@@ -78,7 +85,7 @@ for epoch in tqdm_range:
         s = s.to(device)
         s_prime = s_prime.to(device)
         output = model((s, s_prime))
-        target = torch.arange(0, len(s)).to(device)
+        # target = torch.arange(0, len(s)).to(device)
         loss += criterion(output, target)
 
         if (ind + 1) % batches_per_update == 0:
@@ -105,7 +112,7 @@ for epoch in tqdm_range:
             s = s.to(device)
             s_prime = s_prime.to(device)
             output = model((s, s_prime))
-            target = torch.arange(0, len(s)).to(device)
+            # target = torch.arange(0, len(s)).to(device)
             loss = criterion(output, target)
 
             test_loss += loss.item()
@@ -147,11 +154,11 @@ if save:
 
     info = {'dataset': dataset_path, 'batch_size': batch_size, 'n_trajectories': n_trajectories,
             'pairs_per_trajectory': pairs_per_trajectory, 'n_epochs': n_epochs, 'n_epochs_run': n_epochs_run,
-            'best_epoch': best_epoch, 'best_test_acc': best_test_acc, 'time_str': time_str, 'device': str(device)}
+            'best_epoch': best_epoch, 'best_test_acc': best_test_acc, 'time_str': time_str, 'device': str(device),
+            'embed_size': embed_size, 'dtype_for_torch': dtype_for_torch, 'state_embed_size': state_embed_size,
+            'n_z': n_z, 'dssm_eps': dssm_eps}
     with open(experiment_path / 'info.json', 'w') as f:
         json.dump(info, f, indent=4)
 
     with open(experiment_path_base + 'summary.csv', 'a') as f:
         f.write(experiment_name + f',{best_test_acc}')
-
-print('Done')

@@ -23,7 +23,7 @@ class DatasetFromPickle(Dataset):
 
 
 class BatchIterator:
-    def __init__(self, data_path, idx_path, n_trajectories, pairs_per_trajectory, size=None):
+    def __init__(self, data_path, idx_path, n_trajectories, pairs_per_trajectory, size=None, dtype_for_torch=np.float32):
         with open(data_path, 'rb') as f:
             self.data = pickle.load(f)
         with open(idx_path, 'rb') as f:
@@ -35,6 +35,7 @@ class BatchIterator:
         self.cnt = 0
         self.size = size
         self.seeds = np.array(list(self.idx.keys()), dtype=np.int)
+        self.dtype_for_torch = dtype_for_torch
 
     def __iter__(self):
         return self
@@ -48,8 +49,8 @@ class BatchIterator:
             for seed in batch_seeds:
                 start, stop = self.idx[seed]
                 indices = np.random.choice(np.arange(start, stop), self.pairs_per_trajectory, replace=False)
-                batch_s += [torch.from_numpy(self.data[i][0].astype(np.float32)) for i in indices]
-                batch_s_prime += [torch.from_numpy(self.data[i][1].astype(np.float32)) for i in indices]
+                batch_s += [torch.from_numpy(self.data[i][0].astype(self.dtype_for_torch)) for i in indices]
+                batch_s_prime += [torch.from_numpy(self.data[i][1].astype(self.dtype_for_torch)) for i in indices]
             s = torch.stack(batch_s, dim=0)
             s_prime = torch.stack(batch_s_prime, dim=0)
             return (s, s_prime)

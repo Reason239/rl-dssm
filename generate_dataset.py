@@ -7,7 +7,13 @@ from collections import defaultdict
 import pathlib
 
 
-def make_env_index_dataset(data_path, n_envs_train, n_envs_test, eps):
+def make_env_index_dataset(data_path, n_envs_train, n_envs_test, eps, dtype):
+    if dtype == 'bool':
+        np_dtype = np.bool_
+    elif dtype == 'int':
+        np_dtype = np.int
+    else:
+        raise ValueError
     train = []
     test = []
     button_idxs_used = set()
@@ -22,14 +28,14 @@ def make_env_index_dataset(data_path, n_envs_train, n_envs_test, eps):
         repeats = True
         while repeats:
             seed += 1
-            env = GridWorld(height=5, width=5, n_buttons=3, seed=seed)
+            env = GridWorld(height=5, width=5, n_buttons=3, seed=seed, obs_dtype=dtype)
             observation = env.reset()
             repeats = env.button_idx in button_idxs_used
-        states = [observation.astype(np.bool_)]
+        states = [observation.astype(np_dtype)]
         done = False
         while not done:
             observation, _, done, _ = env.step(env.get_expert_action(eps))
-            states.append(observation.astype(np.bool_))
+            states.append(observation.astype(np_dtype))
         dataset += list(combinations(states, 2))
         start = cur_num
         stop = cur_num + len(states) * (len(states) - 1) // 2
@@ -99,11 +105,10 @@ def make_states_dict_dataset(data_path, n_envs_train, n_envs_test, n_runs_per_en
 
 if __name__ == '__main__':
     np.random.seed(42)
-    data_path = 'datasets/states_1_1000/'
-    n_envs_train = 1
-    n_envs_test = 0
-    n_runs_per_env = 1000
+    data_path = 'datasets/int_1000/'
+    n_envs_train = 1000
+    n_envs_test = 200
     # TODO try eps=0
-    # eps = 0.05
-    eps = 0
-    make_states_dict_dataset(data_path, n_envs_train, n_envs_test, n_runs_per_env, eps)
+    eps = 0.05
+    # eps = 0
+    make_env_index_dataset(data_path, n_envs_train, n_envs_test, eps, 'int')

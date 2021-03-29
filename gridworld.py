@@ -100,7 +100,7 @@ class GridWorld(gym.Env):
     name2action = {k: v for v, k in enumerate(action2name)}
     action2delta = np.array([[-1, 0], [1, 0], [0, -1], [0, 1], [0, 0]], dtype=np.int)
 
-    def __init__(self, height=5, width=5, n_buttons=3, button_pos=None, pixels_per_tile=50, seed=None):
+    def __init__(self, height=5, width=5, n_buttons=3, button_pos=None, pixels_per_tile=50, seed=None, obs_dtype='bool'):
         """
         :param height: height of the world (in tiles)
         :param width: width of the world (in tiles)
@@ -125,6 +125,9 @@ class GridWorld(gym.Env):
             self.button_idx = tuple(idx)
         else:
             self.button_idx = tuple(a * width + b for (a, b) in button_pos)
+        if obs_dtype not in ['bool', 'int']:
+            raise ValueError
+        self.obs_dtype = obs_dtype
 
         button_inds = []
         self.next_button = None
@@ -139,17 +142,29 @@ class GridWorld(gym.Env):
         res[1] = np.clip(res[1], 0, self.width - 1)
         return res
 
-    def get_observation(self):
-        obs = np.zeros((2 * self.n_buttons + 1, self.height, self.width), dtype=np.int)
-        h, w = self.pos
-        obs[0, h, w] = 1
-        for ind, b_pos in enumerate(self.button_pos):
-            h, w = b_pos
-            if ind < self.next_button:
-                obs[2 * ind + 1, h, w] = 1
-            else:
-                obs[2 * ind + 2, h, w] = 1
-        return obs
+    def get_observation(self, dtype='bool'):
+        if self.obs_dtype == 'bool':
+            obs = np.zeros((2 * self.n_buttons + 1, self.height, self.width), dtype=np.int)
+            h, w = self.pos
+            obs[0, h, w] = 1
+            for ind, b_pos in enumerate(self.button_pos):
+                h, w = b_pos
+                if ind < self.next_button:
+                    obs[2 * ind + 1, h, w] = 1
+                else:
+                    obs[2 * ind + 2, h, w] = 1
+            return obs
+        if self.obs_dtype == 'int':
+            obs = np.zeros((self.height, self.width), dtype=np.int)
+            h, w = self.pos
+            obs[h, w] = 2 * self.n_buttons + 1
+            for ind, b_pos in enumerate(self.button_pos):
+                h, w = b_pos
+                if ind < self.next_button:
+                    obs[h, w] += 2 * ind + 1
+                else:
+                    obs[h, w] += 2 * ind + 2
+            return obs
 
     def step(self, action):
         """
