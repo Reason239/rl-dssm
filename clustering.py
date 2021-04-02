@@ -1,6 +1,6 @@
 from utils import DatasetFromPickle
 from gridworld import get_grid, join_grids, get_colors, is_final, is_starting, n_pressed, get_stage_and_pos
-from dssm import DSSM
+from dssm import DSSM, DSSMEmbed
 
 from collections import Counter, defaultdict
 from pprint import pprint
@@ -15,22 +15,22 @@ import pathlib
 import pickle
 from scipy.stats import entropy
 
-dataset_path = pathlib.Path('datasets/states_1000_10')
+dataset_path = pathlib.Path('datasets/int_1000')
 experiment_path_base = pathlib.Path('experiments')
-experiment_name = 'states_1000_10_test3'
-clustering_name = 'clustering10'
+experiment_name = 'quant_test1'
+clustering_name = 'clustering50'
 save_path = experiment_path_base / experiment_name / clustering_name
 save_path.mkdir(parents=True, exist_ok=True)
 batch_size = 256
 embed_size = 64
-n_clusters = 10
+n_clusters = 50
 n_cols = 6
 n_rows = 10
 figsize = (14, 14)
 pixels_per_tile = 10
 pixels_between = pixels_per_tile // 2
 
-train_dataset = DatasetFromPickle(dataset_path / 'train.pkl')
+train_dataset = DatasetFromPickle(dataset_path / 'train.pkl', dtype='int')
 train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, drop_last=False)
 x_raw_path = save_path / 'x_raw.pkl'
 kmeans_path = save_path / 'kmeans.pkl'
@@ -43,14 +43,16 @@ if x_raw_path.exists() and kmeans_path.exists():
 else:
     print('Clustering')
 
-    model = DSSM(in_channels=7, height=5, width=5, embed_size=embed_size)
+    # model = DSSM(in_channels=7, height=5, width=5, embed_size=embed_size)
+    model = DSSMEmbed(n_z=50)
     model.eval()
     model.load_state_dict(torch.load(experiment_path_base / experiment_name / 'best_model.pth'))
 
     embeds = []
     with torch.no_grad():
         for s, s_prime in tqdm(train_dataloader):
-            embeds.append(model.phi2(s_prime - s).numpy())
+            # embeds.append(model.phi2(s_prime - s).numpy())
+            embeds.append(model.phi2(model.embed(s_prime) - model.embed(s)).numpy())
 
     x_raw = np.concatenate(embeds)
     kmeans = KMeans(n_clusters=n_clusters, verbose=0, random_state=42)

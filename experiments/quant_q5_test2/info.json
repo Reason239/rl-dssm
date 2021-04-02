@@ -1,0 +1,17 @@
+{
+    "dataset": "datasets/int_1000/",
+    "batch_size": 64,
+    "n_trajectories": 16,
+    "pairs_per_trajectory": 4,
+    "n_epochs": 60,
+    "n_epochs_run": 60,
+    "best_epoch": 46,
+    "best_test_acc": 0.05846908244680851,
+    "time_str": "0 hours 23 minutes 56 seconds",
+    "device": "cuda",
+    "embed_size": 64,
+    "dtype_for_torch": "int",
+    "state_embed_size": 3,
+    "n_z": 5,
+    "dssm_eps": 0.0001
+}

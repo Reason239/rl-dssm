@@ -13,15 +13,15 @@ from timeit import default_timer as timer
 
 time_start = timer()
 np.random.seed(42)
-dataset_path = 'datasets/int_100/'
+dataset_path = 'datasets/int_1000/'
 experiment_path_base = 'experiments/'
-experiment_name = 'int_test1'
+experiment_name = 'quant_q10_test3'
 save = True
 # TODO try bigger batch_size
 # batch_size = 256
 batches_per_update = 1
 n_trajectories = 16
-pairs_per_trajectory = 8
+pairs_per_trajectory = 4
 batch_size = n_trajectories * pairs_per_trajectory
 n_epochs = 60
 patience = max(1, n_epochs // 3)
@@ -33,7 +33,7 @@ if device == 'cuda':
 dtype_for_torch = 'int'
 state_embed_size = 3
 embed_conv_channels = None
-n_z = 50
+n_z = 10
 dssm_eps = 1e-4
 
 if save:
@@ -56,7 +56,7 @@ test_batches = BatchIterator(dataset_path + 'test.pkl', dataset_path + 'idx_test
 # prepare the model
 # model = DSSM(in_channels=7, height=5, width=5, embed_size=embed_size)
 model = DSSMEmbed(dict_size=14, height=5, width=5, embed_size=embed_size, state_embed_size=state_embed_size,
-                  embed_conv_channels=embed_conv_channels, n_z=n_z, eps=dssm_eps)
+                  embed_conv_channels=embed_conv_channels, n_z=n_z, eps=dssm_eps, commitment_cost=0.25)
 criterion = nn.CrossEntropyLoss()
 target = torch.arange(0, batch_size).to(device)
 optimizer = torch.optim.Adam(model.parameters())
@@ -84,9 +84,10 @@ for epoch in tqdm_range:
     for ind, (s, s_prime) in enumerate(train_batches):
         s = s.to(device)
         s_prime = s_prime.to(device)
-        output = model((s, s_prime))
+        output, batch_loss = model.forward_and_loss((s, s_prime), criterion, target)
         # target = torch.arange(0, len(s)).to(device)
-        loss += criterion(output, target)
+        # loss += criterion(output, target)
+        loss += batch_loss
 
         if (ind + 1) % batches_per_update == 0:
             optimizer.zero_grad()
@@ -111,11 +112,11 @@ for epoch in tqdm_range:
         for s, s_prime in test_batches:
             s = s.to(device)
             s_prime = s_prime.to(device)
-            output = model((s, s_prime))
+            output, batch_loss = model.forward_and_loss((s, s_prime), criterion, target)
             # target = torch.arange(0, len(s)).to(device)
-            loss = criterion(output, target)
+            # loss = criterion(output, target)
 
-            test_loss += loss.item()
+            test_loss += batch_loss.item()
             _, predicted = torch.max(output.data, 1)
             test_total += len(s)
             test_correct += predicted.eq(target.data).sum().item()

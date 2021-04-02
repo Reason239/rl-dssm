@@ -14,5 +14,7 @@ from collections import defaultdict
 
 from utils import plot_gridworld
 
-a = torch.randn(2, 3)
-print(a / torch.sqrt(torch.sum(a**2, dim=1, keepdim=True)))
+a = torch.tensor([[1., 2], [3, 4]], requires_grad=True)
+b = a[[0, 0, 0, 1]].sum()
+b.backward()
+print(a.grad)

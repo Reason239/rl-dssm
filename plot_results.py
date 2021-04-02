@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import pickle
 
 experiment_path = 'experiments/'
-experiment_name = 'states_1_1000_test4'
+experiment_name = 'quant_q5_test2'
 
 with open(experiment_path + experiment_name + '/metrics.pkl', 'rb') as f:
     metrics = pickle.load(f)

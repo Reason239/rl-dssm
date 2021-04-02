@@ -55,6 +55,11 @@ class DSSM(nn.Module):
 
         return output
 
+    def forward_and_loss(self, x, criterion, target):
+        output = self.forward(x)
+        loss = criterion(output, target)
+        return output, loss
+
 
 def normalized(matrix, eps):
     return matrix / (torch.sqrt(torch.sum(matrix ** 2, dim=1, keepdim=True)) + eps)
@@ -62,7 +67,7 @@ def normalized(matrix, eps):
 
 class DSSMEmbed(nn.Module):
     def __init__(self, dict_size=14, height=5, width=5, embed_size=64, state_embed_size=3, embed_conv_channels=None,
-                 n_z=5, eps=1e-4):
+                 n_z=5, eps=1e-4, commitment_cost=0.25):
         super().__init__()
         self.relu = nn.ReLU()
 
@@ -74,6 +79,7 @@ class DSSMEmbed(nn.Module):
         else:
             self.conv_embed = None
         self.eps = eps
+        self.commitment_cost = commitment_cost
 
         # phi_1
         in_channels = embed_conv_channels or state_embed_size
@@ -94,7 +100,6 @@ class DSSMEmbed(nn.Module):
 
         # alpha (temperature scale)
         self.scale = torch.nn.Parameter(torch.ones((1,)))
-
 
     def embed(self, s):
         x = self.state_embed(s).permute(0, 3, 1, 2)
@@ -134,3 +139,29 @@ class DSSMEmbed(nn.Module):
         output = torch.exp(self.scale) * gramm
 
         return output
+
+    def forward_and_loss(self, x, criterion, target):
+        s, s_prime = x
+        s, s_prime = self.embed(s), self.embed(s_prime)
+
+        embed1 = self.phi1(s)
+        embed2 = self.phi2(s_prime - s)
+
+        # quantize
+        z_vectors_norm = normalized(self.z_vectors, 0)
+        z_inds = torch.argmax(torch.matmul(embed2, z_vectors_norm.T), dim=1)
+        z_matrix = z_vectors_norm[z_inds]
+
+        encoder_latent_loss = ((z_matrix.detach() - embed2) ** 2).mean()
+        quant_latent_loss = ((z_matrix - (embed2).detach()) ** 2).mean()
+        loss = quant_latent_loss + self.commitment_cost * encoder_latent_loss
+
+        # Straight Through Estimator
+        z_matrix = embed2 + (z_matrix - embed2).detach()
+
+        # calculate inner products (Gramm matrix)
+        gramm = torch.matmul(embed1, z_matrix.T)
+        output = torch.exp(self.scale) * gramm
+        loss += criterion(output, target)
+
+        return output, loss

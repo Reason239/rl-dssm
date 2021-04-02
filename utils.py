@@ -8,12 +8,17 @@ import matplotlib.pyplot as plt
 
 
 class DatasetFromPickle(Dataset):
-    def __init__(self, data_path):
+    def __init__(self, data_path, dtype='bool'):
         with open(data_path, 'rb') as f:
             self.data = pickle.load(f)
+        self.dtype = dtype
 
     def __getitem__(self, idx):
-        return tuple(torch.from_numpy(s.astype(np.float32)) for s in self.data[idx])
+        if self.dtype == 'bool':
+            return tuple(torch.from_numpy(s.astype(np.float32)) for s in self.data[idx])
+        if self.dtype == 'int':
+            return tuple(torch.from_numpy(s.astype(np.int)) for s in self.data[idx])
+        raise ValueError
 
     def get_raw(self, idx):
         return self.data[idx]
