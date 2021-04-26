@@ -1,20 +1,9 @@
-import numpy as np
-
-import pickle
-import torch
-from tqdm import tqdm
-import time
-import json
-import matplotlib.pyplot as plt
-# from gridworld import *
-from scipy.stats import entropy
-# import matplotlib.pylab as plt
-from itertools import combinations
-from collections import defaultdict
-
 from utils import plot_gridworld
+import pathlib
 
-a = torch.tensor([[1., 2], [3, 4]], requires_grad=True)
-b = a[[0, 0, 0, 1]].sum()
-b.backward()
-print(a.grad)
+save_path = pathlib.Path('experiments/test_bool.png')
+plot_gridworld(5, 5, save_path=save_path, dtype='bool')
+
+save_path = pathlib.Path('experiments/test_int.png')
+plot_gridworld(5, 5, save_path=save_path, dtype='int')
+

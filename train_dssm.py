@@ -1,3 +1,5 @@
+import comet_ml
+
 from utils import DatasetFromPickle, format_time, BatchIterator, SmallBatchIterator
 from dssm import DSSM, DSSMEmbed
 
@@ -9,32 +11,42 @@ import json
 import pickle
 from tqdm import tqdm
 import pathlib
-from timeit import default_timer as timer
+from collections import defaultdict
+from contextlib import nullcontext
 
-time_start = timer()
 np.random.seed(42)
 dataset_path = 'datasets/int_1000/'
 experiment_path_base = 'experiments/'
-experiment_name = 'quant_q10_test3'
+experiment_name = 'quant_q10_test4'
+use_comet = True
 save = True
 # TODO try bigger batch_size
 # batch_size = 256
-batches_per_update = 1
 n_trajectories = 16
 pairs_per_trajectory = 4
 batch_size = n_trajectories * pairs_per_trajectory
 n_epochs = 60
 patience = max(1, n_epochs // 3)
 embed_size = 64
-device = 'cuda'
+device = 'cpu'
 do_eval = True
 if device == 'cuda':
     torch.cuda.empty_cache()
 dtype_for_torch = 'int'
 state_embed_size = 3
 embed_conv_channels = None
-n_z = 10
+n_z = 50
 dssm_eps = 1e-4
+
+if use_comet:
+    comet_experiment = comet_ml.Experiment(project_name='gridworld_dssm', auto_metric_logging=False)
+    comet_experiment.set_name(experiment_name)
+    train_context = comet_experiment.train
+    eval_context = comet_experiment.validate
+else:
+    comet_experiment = None
+    train_context = nullcontext
+    eval_context = nullcontext
 
 if save:
     experiment_path = pathlib.Path(experiment_path_base + experiment_name)
@@ -50,8 +62,6 @@ train_batches = BatchIterator(dataset_path + 'train.pkl', dataset_path + 'idx_tr
                               n_trajectories, pairs_per_trajectory, None, dtype_for_torch)
 test_batches = BatchIterator(dataset_path + 'test.pkl', dataset_path + 'idx_test.pkl',
                              n_trajectories, pairs_per_trajectory, None, dtype_for_torch)
-# train_batches = SmallBatchIterator(dataset_path + 'train.pkl', dataset_path + 's_ind_train.pkl')
-# test_batches = SmallBatchIterator(dataset_path + 'test.pkl', dataset_path + 's_ind_test.pkl')
 
 # prepare the model
 # model = DSSM(in_channels=7, height=5, width=5, embed_size=embed_size)
@@ -75,66 +85,80 @@ model = model.to(device)
 tqdm_range = tqdm(range(n_epochs))
 for epoch in tqdm_range:
     # train
-    train_loss = 0
-    train_correct = 0
-    train_total = 0
-    model.train()
-    train_batches.refresh()
-    loss = 0
-    for ind, (s, s_prime) in enumerate(train_batches):
-        s = s.to(device)
-        s_prime = s_prime.to(device)
-        output, batch_loss = model.forward_and_loss((s, s_prime), criterion, target)
-        # target = torch.arange(0, len(s)).to(device)
-        # loss += criterion(output, target)
-        loss += batch_loss
+    with train_context():
+        train_loss = 0
+        train_correct = 0
+        train_total = 0
+        model.train()
+        train_batches.refresh()
+        for ind, (s, s_prime) in enumerate(train_batches):
+            # get the inputs
+            s = s.to(device)
+            s_prime = s_prime.to(device)
 
-        if (ind + 1) % batches_per_update == 0:
+            # zero the parameter gradients
             optimizer.zero_grad()
+
+            # forward + backward + optimize
+            output, loss = model.forward_and_loss((s, s_prime), criterion, target)
+            # target = torch.arange(0, len(s)).to(device)
+            # loss += criterion(output, target)
             loss.backward()
             optimizer.step()
-            train_loss += loss.item()
-            loss = 0
+            loss_item = loss.item()
+            train_loss += loss_item
 
-        _, predicted = torch.max(output.data, 1)
-        train_total += len(s)
-        train_correct += predicted.eq(target.data).sum().item()
-    train_losses.append(train_loss / train_total)
-    train_accs.append(train_correct / train_total)
+            _, predicted = torch.max(output.data, 1)
+            train_total += len(s)
+            train_correct += predicted.eq(target.data).sum().item()
+
+            if use_comet:
+                comet_experiment.log_metric('batch_loss', loss_item)
+        train_loss /= train_total
+        train_acc = train_correct / train_total
+        train_losses.append(train_loss)
+        train_accs.append(train_acc)
+        if use_comet:
+            comet_experiment.log_metrics({'loss': train_loss, 'accuracy': train_acc})
 
     # eval
     if do_eval:
-        test_loss = 0
-        test_correct = 0
-        test_total = 0
-        model.eval()
-        test_batches.refresh()
-        for s, s_prime in test_batches:
-            s = s.to(device)
-            s_prime = s_prime.to(device)
-            output, batch_loss = model.forward_and_loss((s, s_prime), criterion, target)
-            # target = torch.arange(0, len(s)).to(device)
-            # loss = criterion(output, target)
+        with eval_context():
+            test_loss = 0
+            test_correct = 0
+            test_total = 0
+            model.eval()
+            test_batches.refresh()
+            for s, s_prime in test_batches:
+                s = s.to(device)
+                s_prime = s_prime.to(device)
+                output, batch_loss = model.forward_and_loss((s, s_prime), criterion, target)
+                # target = torch.arange(0, len(s)).to(device)
+                # loss = criterion(output, target)
 
-            test_loss += batch_loss.item()
-            _, predicted = torch.max(output.data, 1)
-            test_total += len(s)
-            test_correct += predicted.eq(target.data).sum().item()
-        test_losses.append(test_loss / test_total)
-        test_accs.append(test_correct / test_total)
+                test_loss += batch_loss.item()
+                _, predicted = torch.max(output.data, 1)
+                test_total += len(s)
+                test_correct += predicted.eq(target.data).sum().item()
+            test_loss /= test_total
+            test_acc = test_correct / test_total
+            test_losses.append(test_loss)
+            test_accs.append(test_acc)
+            if use_comet:
+                comet_experiment.log_metrics({'loss': test_loss, 'accuracy': test_acc})
 
-        # save model (best)
-        if test_accs[-1] > best_test_acc:
-            best_test_acc = test_accs[-1]
-            best_epoch = epoch
-            if save:
-                torch.save(model.state_dict(), experiment_path / 'best_model.pth')
-        tqdm_range.set_postfix(train_loss=train_losses[-1], test_loss=test_losses[-1], test_acc=test_accs[-1])
+            # save model (best)
+            if test_accs[-1] > best_test_acc:
+                best_test_acc = test_accs[-1]
+                best_epoch = epoch
+                if save:
+                    torch.save(model.state_dict(), experiment_path / 'best_model.pth')
+            tqdm_range.set_postfix(train_loss=train_losses[-1], test_loss=test_losses[-1], test_acc=test_accs[-1])
 
-        # stop if test accuracy isn't going up
-        if epoch > best_epoch + patience:
-            n_epochs_run = epoch
-            break
+            # stop if test accuracy isn't going up
+            if epoch > best_epoch + patience:
+                n_epochs_run = epoch
+                break
     else:
         if save:
             torch.save(model.state_dict(), experiment_path / 'best_model.pth')
@@ -143,23 +167,36 @@ for epoch in tqdm_range:
 else:
     # if not break:
     n_epochs_run = n_epochs
-time_end = timer()
-time_str = format_time(time_end - time_start)
 
 # save experiment data
-if save:
-    metrics = {'train_losses': train_losses, 'test_losses': test_losses,
-               'train_accs': train_accs, 'test_accs': test_accs}
-    with open(experiment_path / 'metrics.pkl', 'wb') as f:
-        pickle.dump(metrics, f)
+if save or use_comet:
+    info = dict(dataset_path=dataset_path, batch_size=batch_size, n_trajectories=n_trajectories,
+                pairs_per_trajectory=pairs_per_trajectory, n_epochs=n_epochs, n_epochs_run=n_epochs_run,
+                best_epoch=best_epoch, best_test_acc=best_test_acc, device=str(device),
+                embed_size=embed_size, dtype_for_torch=dtype_for_torch, state_embed_size=state_embed_size,
+                n_z=n_z, dssm_eps=dssm_eps)
 
-    info = {'dataset': dataset_path, 'batch_size': batch_size, 'n_trajectories': n_trajectories,
-            'pairs_per_trajectory': pairs_per_trajectory, 'n_epochs': n_epochs, 'n_epochs_run': n_epochs_run,
-            'best_epoch': best_epoch, 'best_test_acc': best_test_acc, 'time_str': time_str, 'device': str(device),
-            'embed_size': embed_size, 'dtype_for_torch': dtype_for_torch, 'state_embed_size': state_embed_size,
-            'n_z': n_z, 'dssm_eps': dssm_eps}
-    with open(experiment_path / 'info.json', 'w') as f:
-        json.dump(info, f, indent=4)
+    if save:
+        metrics = {'train_losses': train_losses, 'test_losses': test_losses,
+                   'train_accs': train_accs, 'test_accs': test_accs}
+        with open(experiment_path / 'metrics.pkl', 'wb') as f:
+            pickle.dump(metrics, f)
 
-    with open(experiment_path_base + 'summary.csv', 'a') as f:
-        f.write(experiment_name + f',{best_test_acc}')
+        with open(experiment_path / 'info.json', 'w') as f:
+            json.dump(info, f, indent=4)
+
+        with open(experiment_path_base + 'summary.csv', 'a') as f:
+            f.write(experiment_name + f',{best_test_acc}')
+
+    if use_comet:
+        comet_experiment.log_parameters(info)
+        # save experiment key for later logging
+        experiment_keys_path = pathlib.Path('experiments/comet_keys.pkl')
+        if not experiment_keys_path.exists():
+            experiment_keys = defaultdict(list)
+        else:
+            with open(experiment_keys_path, 'rb') as f:
+                experiment_keys = pickle.load(f)
+        experiment_keys[experiment_name].append(comet_experiment.get_key())
+        with open(experiment_keys_path, 'wb') as f:
+            pickle.dump(experiment_keys, f)

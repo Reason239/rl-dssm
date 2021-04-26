@@ -14,7 +14,9 @@ from matplotlib.gridspec import GridSpec
 import pathlib
 import pickle
 
-def plot_next_from_random(model, n_env, n_top, figsize, seed_base=10000, seed_increment=1, save_path=None, name=None):
+
+def plot_next_from_random(model, n_env, n_top, figsize, seed_base=10000, seed_increment=1, save_path=None, name=None,
+                          dtype='bool', n_buttons=3):
     fig, axes = plt.subplots(nrows=n_env, ncols=n_top + 1, figsize=figsize)
     for row in axes:
         for ax in row:
@@ -30,12 +32,12 @@ def plot_next_from_random(model, n_env, n_top, figsize, seed_base=10000, seed_in
         ind_sorted = sorted(list(range(len(s_primes))), key=lambda i: out[i], reverse=True)[:n_top]
 
         ax = axes[i_env, 0]
-        ax.imshow(get_grid(s))
+        ax.imshow(get_grid(s, dtype=dtype, n_buttons=n_buttons))
         ax.set_title('Starting state')
 
         for j, i_top in enumerate(ind_sorted):
             ax = axes[i_env, j + 1]
-            ax.imshow(get_grid(s_primes[i_top]))
+            ax.imshow(get_grid(s_primes[i_top], dtype=dtype, n_buttons=n_buttons))
             ax.set_title(f'pred: {out[i_top]:.2f}')
 
     fig.suptitle('Next state predictions for random states')
@@ -43,6 +45,7 @@ def plot_next_from_random(model, n_env, n_top, figsize, seed_base=10000, seed_in
         save_path.mkdir(parents=True, exist_ok=True)
         fig.savefig(save_path / name)
     plt.show()
+
 
 if __name__ == '__main__':
     experiment_path_base = pathlib.Path('experiments')

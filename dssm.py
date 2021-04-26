@@ -130,7 +130,7 @@ class DSSMEmbed(nn.Module):
         embed1 = self.phi1(s)
         embed2 = self.phi2(s_prime - s)
 
-        z_vectors_norm = normalized(self.z_vectors, 0)
+        z_vectors_norm = normalized(self.z_vectors, eps=0)
         z_inds = torch.argmax(torch.matmul(embed2, z_vectors_norm.T), dim=1)
         z_matrix = z_vectors_norm[z_inds]
 

@@ -73,7 +73,7 @@ print(f'Unique data shape: {x.shape}')
 centers = kmeans.cluster_centers_
 
 
-def make_plots():
+def make_plots(dtype='bool', n_buttons=3):
     for ind_cluster, center in tqdm(enumerate(centers)):
         fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=figsize)
         for row in axes:
@@ -88,8 +88,8 @@ def make_plots():
         for i, display_index in enumerate(np.linspace(0, len(cur_x), num=n_display, endpoint=False, dtype=np.int)):
             ax = axes[i % n_rows, i // n_rows]
             s, s_prime = train_dataset.get_raw(cur_indices[indices_sorted[display_index]])
-            grid_s = get_grid(s, pixels_per_tile=pixels_per_tile)
-            grid_s_prime = get_grid(s_prime, pixels_per_tile=pixels_per_tile)
+            grid_s = get_grid(s, pixels_per_tile=pixels_per_tile, dtype=dtype, n_buttons=n_buttons)
+            grid_s_prime = get_grid(s_prime, pixels_per_tile=pixels_per_tile, dtype=dtype, n_buttons=n_buttons)
             grid = join_grids(grid_s, grid_s_prime, pixels_between=pixels_between)
             ax.imshow(grid)
             ax.set_title(f'Distance: {distances[indices_sorted[display_index]]:.0f}')
@@ -102,7 +102,7 @@ def make_plots():
 colors = ['red', 'green', 'blue', 'orange', 'purple']
 
 
-def compute_statistics(mode='heat plot', n_buttons=3, grid_size=(5, 5)):
+def compute_statistics(mode='heat plot', dtype='bool', n_buttons=3, grid_size=(5, 5)):
     info = [{} for c in centers]
     for ind_cluster, (center, info_dict) in tqdm(enumerate(zip(centers, info)), total=len(centers)):
         raw_mask = (raw_labels == ind_cluster)
@@ -118,8 +118,8 @@ def compute_statistics(mode='heat plot', n_buttons=3, grid_size=(5, 5)):
             n_pressed_s_prime = [0, 0, 0, 0]
             for ind in cur_raw_indices:
                 s, s_prime = train_dataset.get_raw(ind)
-                grid_s = get_grid(s, pixels_per_tile=1)
-                grid_s_prime = get_grid(s_prime, pixels_per_tile=1)
+                grid_s = get_grid(s, pixels_per_tile=1, dtype=dtype, n_buttons=n_buttons)
+                grid_s_prime = get_grid(s_prime, pixels_per_tile=1, dtype=dtype, n_buttons=n_buttons)
                 s_cnt = get_colors((grid_s))
                 s_prime_cnt = get_colors((grid_s_prime))
                 for clr in colors:

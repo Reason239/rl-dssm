@@ -11,18 +11,34 @@ def repeat_upsample(rgb_array, k=1, l=1):
     return np.repeat(np.repeat(rgb_array, k, axis=0), l, axis=1)
 
 
-def rgb_embed(bool_vect):
+def rgb_embed(vector, n_buttons, dtype='bool'):
     rgb = np.array([0, 0, 0], dtype=np.uint8)
-    n_buttons = len(bool_vect) // 2
-    if bool_vect[0]:
-        rgb[0] += 200
-    ind_max = np.argmax(bool_vect[1:]) + 1
-    ind_button = (ind_max - 1) // 2
-    if bool_vect[ind_max]:
-        if ind_max % 2 == 0:
-            rgb[1] += 100 + 155 * (n_buttons - ind_button) // n_buttons
-        else:
-            rgb[2] += 100 + 155 * (n_buttons - ind_button) // n_buttons
+    if dtype == 'bool':
+        if vector[0]:
+            rgb[0] += 200
+        ind_max = np.argmax(vector[1:]) + 1
+        ind_button = (ind_max - 1) // 2
+        if vector[ind_max]:
+            if ind_max % 2 == 0:
+                # unpressed, green
+                rgb[1] += 100 + 155 * (n_buttons - ind_button) // n_buttons
+            else:
+                # pressed, blue
+                rgb[2] += 100 + 155 * (n_buttons - ind_button) // n_buttons
+    elif dtype == 'int':
+        if vector > 2 * n_buttons:
+            rgb[0] += 200
+            vector -= 2 * n_buttons + 1
+        if vector:
+            ind_button = (vector - 1) // 2
+            if vector % 2 == 0:
+                # unpressed, green
+                rgb[1] += 100 + 155 * (n_buttons - ind_button) // n_buttons
+            else:
+                # pressed, blue
+                rgb[2] += 100 + 155 * (n_buttons - ind_button) // n_buttons
+    else:
+        raise ValueError(f'Incorrect dtype: {dtype}, shuld be "bool" or "int"')
     return rgb
 
 
@@ -35,18 +51,10 @@ def get_stage_and_pos(state):
     unpressed = np.any(state[even, :, :], axis=0)
     stage += 3 * pressed.sum()
     pos = np.argwhere(state[0, :, :])[0]
-    # print(pos)
-    # print(pressed.shape)
-    # print(state[:, :, even].shape)
-    # print(pressed[pos])
     if pressed[pos[0], pos[1]]:
         stage -= 1
     elif unpressed[pos[0], pos[1]]:
         stage += 1
-    # if stage == 9:
-    #     print(pressed)
-    #     print(unpressed)
-    #     print(pos)
     return stage, pos
 
 
@@ -74,12 +82,22 @@ def n_pressed(grid):
     return (grid[:, :, 2] > 0).sum()
 
 
-def get_grid(state, pixels_per_tile=10):
-    depth, height, width = state.shape
+def get_grid(state, pixels_per_tile=10, dtype='bool', n_buttons=3):
+    if dtype == 'bool':
+        depth, height, width = state.shape
+        assert n_buttons == depth // 2
+    elif dtype == 'int':
+        height, width = state.shape
+    else:
+        raise ValueError(f'Incorrect dtype: {dtype}, shuld be "bool" or "int"')
     grid = np.zeros((height, width, 3), dtype=np.uint8)
     for h in range(height):
         for w in range(width):
-            grid[h, w, :] = rgb_embed(state[:, h, w])
+            if dtype == 'bool':
+                vector = state[:, h, w]
+            else:
+                vector = state[h, w]
+            grid[h, w, :] = rgb_embed(vector, n_buttons, dtype)
     grid = repeat_upsample(grid, pixels_per_tile, pixels_per_tile)
     return grid
 
@@ -142,7 +160,7 @@ class GridWorld(gym.Env):
         res[1] = np.clip(res[1], 0, self.width - 1)
         return res
 
-    def get_observation(self, dtype='bool'):
+    def get_observation(self):
         if self.obs_dtype == 'bool':
             obs = np.zeros((2 * self.n_buttons + 1, self.height, self.width), dtype=np.int)
             h, w = self.pos
@@ -150,8 +168,10 @@ class GridWorld(gym.Env):
             for ind, b_pos in enumerate(self.button_pos):
                 h, w = b_pos
                 if ind < self.next_button:
+                    # pressed
                     obs[2 * ind + 1, h, w] = 1
                 else:
+                    # unpressed
                     obs[2 * ind + 2, h, w] = 1
             return obs
         if self.obs_dtype == 'int':
@@ -161,8 +181,10 @@ class GridWorld(gym.Env):
             for ind, b_pos in enumerate(self.button_pos):
                 h, w = b_pos
                 if ind < self.next_button:
+                    # pressed
                     obs[h, w] += 2 * ind + 1
                 else:
+                    # unpressed
                     obs[h, w] += 2 * ind + 2
             return obs
 

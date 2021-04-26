@@ -118,17 +118,17 @@ def format_time(seconds):
     return f'{hours} hours {minutes} minutes {secs} seconds'
 
 
-def plot_gridworld(n_rows=2, n_cols=3, figsize=(10, 6), eps=0, save_path='gridworld_demo.svg', seed=42):
+def plot_gridworld(n_rows=2, n_cols=3, figsize=(10, 6), eps=0, save_path='gridworld_demo.svg', seed=42, dtype='bool'):
     total = n_rows * n_cols
     np.random.seed(seed)
-    env = GridWorld(5, 5, 3)
+    env = GridWorld(5, 5, 3, obs_dtype=dtype)
     obs = env.reset()
     done = False
-    grids = [get_grid(obs)]
+    grids = [get_grid(obs, dtype=dtype, n_buttons=3)]
     while not done:
         action = env.get_expert_action(eps=eps)
         obs, _, done, _ = env.step(action)
-        grids.append(get_grid(obs))
+        grids.append(get_grid(obs, dtype=dtype, n_buttons=3))
     if total < len(grids):
         display_ind = np.linspace(0, len(grids) - 1, total, dtype=int)
         grids = [grids[i] for i in display_ind]
