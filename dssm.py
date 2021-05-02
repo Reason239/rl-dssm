@@ -57,8 +57,9 @@ class DSSM(nn.Module):
 
     def forward_and_loss(self, x, criterion, target):
         output = self.forward(x)
-        loss = criterion(output, target)
-        return output, loss
+        total_loss = criterion(output, target)
+        results = dict(output=output, total_loss=total_loss)
+        return results
 
 
 def normalized(matrix, eps):
@@ -67,7 +68,7 @@ def normalized(matrix, eps):
 
 class DSSMEmbed(nn.Module):
     def __init__(self, dict_size=14, height=5, width=5, embed_size=64, state_embed_size=3, embed_conv_channels=None,
-                 n_z=5, eps=1e-4, commitment_cost=0.25):
+                 n_z=5, eps=1e-4, commitment_cost=0.25, distance_loss_coef=1.):
         super().__init__()
         self.relu = nn.ReLU()
 
@@ -78,28 +79,34 @@ class DSSMEmbed(nn.Module):
                                         padding=1)
         else:
             self.conv_embed = None
+        self.embed_size = embed_size
         self.eps = eps
         self.commitment_cost = commitment_cost
+        self.distance_loss_coef = distance_loss_coef
 
         # phi_1
         in_channels = embed_conv_channels or state_embed_size
-        # batch * height * width * in_channels
+        # batch * in_channels * height * width
         self.phi1_conv1 = nn.Conv2d(in_channels=in_channels, out_channels=16, kernel_size=3, padding=1)
-        # batch * height * width * 16
+        # batch * 16 * height * width
         self.phi1_conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, padding=1)
-        # batch * height * width * 32 -> flatten
-        self.phi1_linear = nn.Linear(height * width * 32, embed_size)
+        # batch * 32 * height * width -> flatten
+        self.phi1_linear = nn.Linear(32 * height * width, embed_size)
 
         # phi_2 - same architecture as phi_1
         self.phi2_conv1 = nn.Conv2d(in_channels=in_channels, out_channels=16, kernel_size=3, padding=1)
         self.phi2_conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, padding=1)
-        self.phi2_linear = nn.Linear(height * width * 32, embed_size)
+        self.phi2_linear = nn.Linear(32 * height * width, embed_size)
 
-        # z vectors
+        # z vectors - quantized embeddings
         self.z_vectors = nn.Parameter(torch.randn(n_z, embed_size))
 
         # alpha (temperature scale)
         self.scale = torch.nn.Parameter(torch.ones((1,)))
+
+    @property
+    def z_vectors_norm(self):
+        return normalized(self.z_vectors, eps=0)
 
     def embed(self, s):
         x = self.state_embed(s).permute(0, 3, 1, 2)
@@ -125,43 +132,58 @@ class DSSMEmbed(nn.Module):
 
     def forward(self, x):
         s, s_prime = x
-        s, s_prime = self.embed(s), self.embed(s_prime)
+        s_embed = self.embed(s)
+        s_prime_embed = self.embed(s_prime)
 
-        embed1 = self.phi1(s)
-        embed2 = self.phi2(s_prime - s)
+        embed1 = self.phi1(s_embed)
+        embed2 = self.phi2(s_prime_embed - s_embed)
 
-        z_vectors_norm = normalized(self.z_vectors, eps=0)
+        # quantize
+        z_vectors_norm = self.z_vectors_norm
         z_inds = torch.argmax(torch.matmul(embed2, z_vectors_norm.T), dim=1)
         z_matrix = z_vectors_norm[z_inds]
 
-        # calculate inner products (Gramm matrix)
-        gramm = torch.matmul(embed1, z_matrix.T)
-        output = torch.exp(self.scale) * gramm
+        # calculate inner products (Gram matrix)
+        gram = torch.matmul(embed1, z_matrix.T)
+
+        # apply (positive) temperature scaling
+        output = torch.exp(self.scale) * gram
 
         return output
 
     def forward_and_loss(self, x, criterion, target):
+        """Output is the same as with forward"""
         s, s_prime = x
-        s, s_prime = self.embed(s), self.embed(s_prime)
+        s_embed = self.embed(s)
+        s_prime_embed = self.embed(s_prime)
 
-        embed1 = self.phi1(s)
-        embed2 = self.phi2(s_prime - s)
+        embed1 = self.phi1(s_embed)
+        embed2 = self.phi2(s_prime_embed - s_embed)
 
         # quantize
-        z_vectors_norm = normalized(self.z_vectors, 0)
+        z_vectors_norm = self.z_vectors_norm
         z_inds = torch.argmax(torch.matmul(embed2, z_vectors_norm.T), dim=1)
         z_matrix = z_vectors_norm[z_inds]
 
-        encoder_latent_loss = ((z_matrix.detach() - embed2) ** 2).mean()
-        quant_latent_loss = ((z_matrix - (embed2).detach()) ** 2).mean()
-        loss = quant_latent_loss + self.commitment_cost * encoder_latent_loss
+        encoder_latent_loss = ((z_matrix.detach() - embed2) ** 2).mean() * self.embed_size
+        quant_latent_loss = ((z_matrix - embed2.detach()) ** 2).mean() * self.embed_size
+        total_loss = self.distance_loss_coef * (quant_latent_loss + self.commitment_cost * encoder_latent_loss)
 
         # Straight Through Estimator
         z_matrix = embed2 + (z_matrix - embed2).detach()
 
-        # calculate inner products (Gramm matrix)
-        gramm = torch.matmul(embed1, z_matrix.T)
-        output = torch.exp(self.scale) * gramm
-        loss += criterion(output, target)
+        # calculate inner products (Gram matrix)
+        gram = torch.matmul(embed1, z_matrix.T)
 
-        return output, loss
+        # apply (positive) temperature scaling
+        output = torch.exp(self.scale) * gram
+
+        dssm_loss = criterion(output, target)
+        total_loss += dssm_loss
+
+        z_inds_count = torch.bincount(z_inds, minlength=len(self.z_vectors))
+
+        results = dict(output=output, total_loss=total_loss, encoder_latent_loss=encoder_latent_loss,
+                       dssm_loss=dssm_loss, z_inds_count=z_inds_count)
+
+        return results

@@ -1,6 +1,6 @@
 import comet_ml
 
-from utils import DatasetFromPickle, format_time, BatchIterator, SmallBatchIterator
+from utils import DatasetFromPickle, BatchIterator, SmallBatchIterator
 from dssm import DSSM, DSSMEmbed
 
 import numpy as np
@@ -17,29 +17,33 @@ from contextlib import nullcontext
 np.random.seed(42)
 dataset_path = 'datasets/int_1000/'
 experiment_path_base = 'experiments/'
-experiment_name = 'quant_q10_test4'
+experiment_name = 'quant_q10_dist01_c025'
 use_comet = True
-save = True
-# TODO try bigger batch_size
-# batch_size = 256
+comet_disabled = False  # For debugging
+save = False
 n_trajectories = 16
 pairs_per_trajectory = 4
 batch_size = n_trajectories * pairs_per_trajectory
 n_epochs = 60
-patience = max(1, n_epochs // 3)
+# patience = max(1, n_epochs // 3)
+patience = n_epochs
 embed_size = 64
 device = 'cpu'
 do_eval = True
 if device == 'cuda':
     torch.cuda.empty_cache()
-dtype_for_torch = 'int'
+dtype_for_torch = 'int'  # int for embeddings, float for convolutions
 state_embed_size = 3
 embed_conv_channels = None
-n_z = 50
-dssm_eps = 1e-4
+n_z = 10
+commitment_cost = 0.25  # strength of encoder penalty for distance from quantized embeds
+distance_loss_coef = 0.1  # coefficient of distance losses in total loss
+dssm_eps = 1e-4  # epsilon for normalization of DSSM embeds
 
+# Setup Comet.ml
 if use_comet:
-    comet_experiment = comet_ml.Experiment(project_name='gridworld_dssm', auto_metric_logging=False)
+    comet_experiment = comet_ml.Experiment(project_name='gridworld_dssm', auto_metric_logging=False,
+                                           disabled=comet_disabled)
     comet_experiment.set_name(experiment_name)
     train_context = comet_experiment.train
     eval_context = comet_experiment.validate
@@ -48,11 +52,12 @@ else:
     train_context = nullcontext
     eval_context = nullcontext
 
+# Setup local save path
 if save:
     experiment_path = pathlib.Path(experiment_path_base + experiment_name)
     experiment_path.mkdir(parents=True, exist_ok=True)
 
-# prepare datasets
+# Prepare datasets
 # train_dataset = DatasetFromPickle(dataset_path + 'train.pkl')
 # test_dataset = DatasetFromPickle(dataset_path + 'test.pkl')
 #
@@ -63,10 +68,11 @@ train_batches = BatchIterator(dataset_path + 'train.pkl', dataset_path + 'idx_tr
 test_batches = BatchIterator(dataset_path + 'test.pkl', dataset_path + 'idx_test.pkl',
                              n_trajectories, pairs_per_trajectory, None, dtype_for_torch)
 
-# prepare the model
+# Prepare the model
 # model = DSSM(in_channels=7, height=5, width=5, embed_size=embed_size)
 model = DSSMEmbed(dict_size=14, height=5, width=5, embed_size=embed_size, state_embed_size=state_embed_size,
-                  embed_conv_channels=embed_conv_channels, n_z=n_z, eps=dssm_eps, commitment_cost=0.25)
+                  embed_conv_channels=embed_conv_channels, n_z=n_z, eps=dssm_eps, commitment_cost=commitment_cost,
+                  distance_loss_coef=distance_loss_coef)
 criterion = nn.CrossEntropyLoss()
 target = torch.arange(0, batch_size).to(device)
 optimizer = torch.optim.Adam(model.parameters())
@@ -89,6 +95,7 @@ for epoch in tqdm_range:
         train_loss = 0
         train_correct = 0
         train_total = 0
+        z_inds_count = 0
         model.train()
         train_batches.refresh()
         for ind, (s, s_prime) in enumerate(train_batches):
@@ -100,26 +107,36 @@ for epoch in tqdm_range:
             optimizer.zero_grad()
 
             # forward + backward + optimize
-            output, loss = model.forward_and_loss((s, s_prime), criterion, target)
-            # target = torch.arange(0, len(s)).to(device)
-            # loss += criterion(output, target)
+            results = model.forward_and_loss((s, s_prime), criterion, target)
+            output = results['output']
+            loss = results['total_loss']
             loss.backward()
             optimizer.step()
+
             loss_item = loss.item()
             train_loss += loss_item
-
             _, predicted = torch.max(output.data, 1)
             train_total += len(s)
             train_correct += predicted.eq(target.data).sum().item()
 
+            # Log all losses
             if use_comet:
-                comet_experiment.log_metric('batch_loss', loss_item)
+                for key, value in results.items():
+                    if 'loss' in key:
+                        comet_experiment.log_metric(key, value.item())
+            # Log quantized vectors indices conut
+            if isinstance(model, DSSMEmbed):
+                z_inds_count += results['z_inds_count']
+
         train_loss /= train_total
         train_acc = train_correct / train_total
         train_losses.append(train_loss)
         train_accs.append(train_acc)
         if use_comet:
-            comet_experiment.log_metrics({'loss': train_loss, 'accuracy': train_acc})
+            comet_experiment.log_metrics({'epoch_loss': train_loss, 'accuracy': train_acc})
+            if isinstance(model, DSSMEmbed):
+                z_inds_count = z_inds_count / z_inds_count.sum()
+                comet_experiment.log_text('Counts: ' + ' '.join(f'{num:.1%}' for num in z_inds_count))
 
     # eval
     if do_eval:
@@ -132,9 +149,9 @@ for epoch in tqdm_range:
             for s, s_prime in test_batches:
                 s = s.to(device)
                 s_prime = s_prime.to(device)
-                output, batch_loss = model.forward_and_loss((s, s_prime), criterion, target)
-                # target = torch.arange(0, len(s)).to(device)
-                # loss = criterion(output, target)
+                results = model.forward_and_loss((s, s_prime), criterion, target)
+                output = results['output']
+                batch_loss = results['total_loss']
 
                 test_loss += batch_loss.item()
                 _, predicted = torch.max(output.data, 1)
@@ -145,7 +162,13 @@ for epoch in tqdm_range:
             test_losses.append(test_loss)
             test_accs.append(test_acc)
             if use_comet:
-                comet_experiment.log_metrics({'loss': test_loss, 'accuracy': test_acc})
+                comet_experiment.log_metrics({'epoch_loss': test_loss, 'accuracy': test_acc})
+                # Log embedding distance matrix
+                if isinstance(model, DSSMEmbed):
+                    z_vectors_norm = model.z_vectors_norm
+                    z_vectors_norm_batch = z_vectors_norm.unsqueeze(0)
+                    embed_dist_matr = torch.cdist(z_vectors_norm_batch, z_vectors_norm_batch).squeeze()
+                    comet_experiment.log_confusion_matrix(matrix=embed_dist_matr, title='Embeddings distance matrix')
 
             # save model (best)
             if test_accs[-1] > best_test_acc:

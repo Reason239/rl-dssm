@@ -110,12 +110,12 @@ class SmallBatchIterator:
         self.cnt = 0
 
 
-def format_time(seconds):
-    time = round(seconds)
-    hours = time // 3600
-    minutes = (time % 3600) // 60
-    secs = time % 60
-    return f'{hours} hours {minutes} minutes {secs} seconds'
+# def format_time(seconds):
+#     time = round(seconds)
+#     hours = time // 3600
+#     minutes = (time % 3600) // 60
+#     secs = time % 60
+#     return f'{hours} hours {minutes} minutes {secs} seconds'
 
 
 def plot_gridworld(n_rows=2, n_cols=3, figsize=(10, 6), eps=0, save_path='gridworld_demo.svg', seed=42, dtype='bool'):

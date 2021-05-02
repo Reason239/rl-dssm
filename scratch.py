@@ -1,9 +1,6 @@
-from utils import plot_gridworld
-import pathlib
+import comet_ml
 
-save_path = pathlib.Path('experiments/test_bool.png')
-plot_gridworld(5, 5, save_path=save_path, dtype='bool')
-
-save_path = pathlib.Path('experiments/test_int.png')
-plot_gridworld(5, 5, save_path=save_path, dtype='int')
-
+exp = comet_ml.Experiment(project_name='test')
+exp.set_name('Connection test')
+for i in range(100):
+    exp.log_text('Blah')
