@@ -17,7 +17,7 @@ from contextlib import nullcontext
 np.random.seed(42)
 dataset_path = 'datasets/int_1000/'
 experiment_path_base = 'experiments/'
-experiment_name = 'quant_q10_dist01_c025'
+experiment_name = 'quant_q50_dist01_c025'
 use_comet = True
 comet_disabled = False  # For debugging
 save = False
@@ -35,10 +35,11 @@ if device == 'cuda':
 dtype_for_torch = 'int'  # int for embeddings, float for convolutions
 state_embed_size = 3
 embed_conv_channels = None
-n_z = 10
+n_z = 50
 commitment_cost = 0.25  # strength of encoder penalty for distance from quantized embeds
 distance_loss_coef = 0.1  # coefficient of distance losses in total loss
 dssm_eps = 1e-4  # epsilon for normalization of DSSM embeds
+do_quantize = False  # effectively turns DSSMEmbed into DSSM with state embeddings
 
 # Setup Comet.ml
 if use_comet:
@@ -72,7 +73,7 @@ test_batches = BatchIterator(dataset_path + 'test.pkl', dataset_path + 'idx_test
 # model = DSSM(in_channels=7, height=5, width=5, embed_size=embed_size)
 model = DSSMEmbed(dict_size=14, height=5, width=5, embed_size=embed_size, state_embed_size=state_embed_size,
                   embed_conv_channels=embed_conv_channels, n_z=n_z, eps=dssm_eps, commitment_cost=commitment_cost,
-                  distance_loss_coef=distance_loss_coef)
+                  distance_loss_coef=distance_loss_coef, do_quantize=do_quantize)
 criterion = nn.CrossEntropyLoss()
 target = torch.arange(0, batch_size).to(device)
 optimizer = torch.optim.Adam(model.parameters())
