@@ -195,6 +195,6 @@ class DSSMEmbed(nn.Module):
         else:
             output = self.forward(x)
             total_loss = criterion(output, target)
-            results = dict(output=output, total_loss=total_loss, encoder_latent_loss=0,
-                           dssm_loss=total_loss, z_inds_count=[1])
+            results = dict(output=output, total_loss=total_loss, encoder_latent_loss=torch.Tensor([0]),
+                           dssm_loss=total_loss, z_inds_count=torch.Tensor([1]))
             return results

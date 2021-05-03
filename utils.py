@@ -3,8 +3,9 @@ from torch.utils.data import Dataset
 import torch
 import numpy as np
 import pickle
-import json
+import pathlib
 import matplotlib.pyplot as plt
+import comet_ml
 
 
 class DatasetFromPickle(Dataset):
@@ -28,7 +29,8 @@ class DatasetFromPickle(Dataset):
 
 
 class BatchIterator:
-    def __init__(self, data_path, idx_path, n_trajectories, pairs_per_trajectory, size=None, dtype_for_torch=np.float32):
+    def __init__(self, data_path, idx_path, n_trajectories, pairs_per_trajectory, size=None,
+                 dtype_for_torch=np.float32):
         with open(data_path, 'rb') as f:
             self.data = pickle.load(f)
         with open(idx_path, 'rb') as f:
@@ -143,3 +145,18 @@ def plot_gridworld(n_rows=2, n_cols=3, figsize=(10, 6), eps=0, save_path='gridwo
                 grid = grids[ind]
                 ax.imshow(grid)
     plt.savefig(save_path)
+
+
+def get_old_experiment(name, number=-1, key=None):
+    if key is None:
+        experiment_keys_path = pathlib.Path('experiments/comet_keys.pkl')
+        if not experiment_keys_path.exists():
+            raise Exception(f'No experiment_keys file in {experiment_keys_path}')
+        with open(experiment_keys_path, 'rb') as f:
+            experiment_keys = pickle.load(f)
+        keys = experiment_keys[name]
+        if not keys:
+            raise Exception(f'No saved keys for experiment named {name}')
+        key = keys[number]
+    experiment = comet_ml.ExistingExperiment(previous_experiment=key)
+    return experiment

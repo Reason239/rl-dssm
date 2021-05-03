@@ -17,10 +17,10 @@ from contextlib import nullcontext
 np.random.seed(42)
 dataset_path = 'datasets/int_1000/'
 experiment_path_base = 'experiments/'
-experiment_name = 'quant_q50_dist01_c025'
+experiment_name = 'quant_q100_dist01_c025'
 use_comet = True
 comet_disabled = False  # For debugging
-save = False
+save = True
 n_trajectories = 16
 pairs_per_trajectory = 4
 batch_size = n_trajectories * pairs_per_trajectory
@@ -35,11 +35,11 @@ if device == 'cuda':
 dtype_for_torch = 'int'  # int for embeddings, float for convolutions
 state_embed_size = 3
 embed_conv_channels = None
-n_z = 50
+n_z = 100
 commitment_cost = 0.25  # strength of encoder penalty for distance from quantized embeds
 distance_loss_coef = 0.1  # coefficient of distance losses in total loss
 dssm_eps = 1e-4  # epsilon for normalization of DSSM embeds
-do_quantize = False  # effectively turns DSSMEmbed into DSSM with state embeddings
+do_quantize = True  # effectively turns DSSMEmbed into DSSM with state embeddings
 
 # Setup Comet.ml
 if use_comet:

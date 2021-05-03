@@ -7,7 +7,7 @@ from pprint import pprint
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
-from sklearn.cluster import KMeans, MiniBatchKMeans
+from sklearn.cluster import KMeans
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
