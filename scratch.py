@@ -1,6 +1,5 @@
-import comet_ml
+import numpy as np
+import torch
 
-exp = comet_ml.Experiment(project_name='test')
-exp.set_name('Connection test')
-for i in range(100):
-    exp.log_text('Blah')
+t = torch.Tensor([1.23, 4.32])
+print(hash(t))

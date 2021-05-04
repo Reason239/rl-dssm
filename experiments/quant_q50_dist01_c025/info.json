@@ -1,0 +1,16 @@
+{
+    "dataset_path": "datasets/int_1000/",
+    "batch_size": 64,
+    "n_trajectories": 16,
+    "pairs_per_trajectory": 4,
+    "n_epochs": 60,
+    "n_epochs_run": 60,
+    "best_epoch": 56,
+    "best_test_acc": 0.38443317819148937,
+    "device": "cpu",
+    "embed_size": 64,
+    "dtype_for_torch": "int",
+    "state_embed_size": 3,
+    "n_z": 50,
+    "dssm_eps": 0.0001
+}

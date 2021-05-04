@@ -13,11 +13,11 @@ import matplotlib.pyplot as plt
 experiment_path_base = pathlib.Path('experiments')
 dataset_path = pathlib.Path('datasets/int_1000')
 part = 'train'
-experiment_name = 'quant_q10_dist01_c025'
-n_z = 10
+experiment_name = 'quant_q100_dist01_c025'
+n_z = 100
 show_closest = False
-save_local = False
-save_comet = True
+save_local = True
+save_comet = False
 comet_num = -1
 comet_exp_key = None
 batch_size = 256
