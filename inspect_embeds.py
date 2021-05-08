@@ -17,7 +17,7 @@ experiment_name = 'quant_q100_dist01_c025'
 n_z = 100
 show_closest = False
 save_local = True
-save_comet = False
+save_comet = True
 comet_num = -1
 comet_exp_key = None
 batch_size = 256
@@ -44,7 +44,7 @@ if save_local:
     save_path_base = experiment_path_base / experiment_name / 'inspect_embeds'
     save_path_base.mkdir(parents=True, exist_ok=True)
 if save_comet:
-    comet_experiment = get_old_experiment(experiment_name, comet_num, comet_exp_key, display_summary_level=0)
+    comet_experiment = get_old_experiment(experiment_name, comet_num, comet_exp_key)
     print(f'Connected to expirement with key {comet_experiment.get_key()}')
 
 
@@ -60,13 +60,13 @@ for s, s_prime in tqdm(dataloader):
     z_matrix = z_vectors_norm[z_inds]
     dist = ((embed2 - z_matrix) ** 2).sum(axis=1)
     for one_s, one_s_prime, z_ind, distance, embed in zip(s, s_prime, z_inds, dist, embed2):
-        embed_hash = hash(one_s - one_s_prime)
+        embed_hash = hash(str(one_s - one_s_prime))
         if embed_hash not in hash_counts:
             closest[z_ind].append(((one_s, one_s_prime), distance, embed_hash))
         hash_counts[embed_hash] += 1
 
 print('Logging pictures...')
-closest_sorted = [sorted(arr, key=lambda x: x[1])[:n_cols * n_rows] for arr in closest]
+closest_sorted = [sorted(arr, key=lambda x: x[1]) for arr in closest]
 for z_ind in tqdm(range(n_z)):
     all_pairs = closest_sorted[z_ind]
     n_display = min(n_rows * n_cols, len(all_pairs))

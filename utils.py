@@ -158,5 +158,5 @@ def get_old_experiment(name, number=-1, key=None):
         if not keys:
             raise Exception(f'No saved keys for experiment named {name}')
         key = keys[number]
-    experiment = comet_ml.ExistingExperiment(previous_experiment=key)
+    experiment = comet_ml.ExistingExperiment(previous_experiment=key, display_summary_level=0)
     return experiment
