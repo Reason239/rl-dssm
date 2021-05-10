@@ -1,5 +1,3 @@
-import numpy as np
-import torch
+from utils import plot_gridworld
 
-t = torch.Tensor([1.23, 4.32])
-print(hash(t))
+plot_gridworld(5, 5, (10, 6), 0, 'gridworld_demo_test.svg')

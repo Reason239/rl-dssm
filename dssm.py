@@ -58,7 +58,7 @@ class DSSM(nn.Module):
     def forward_and_loss(self, x, criterion, target):
         output = self.forward(x)
         total_loss = criterion(output, target)
-        results = dict(output=output, total_loss=total_loss)
+        results = dict(output=output, total_loss=total_loss, dssm_loss=total_loss)
         return results
 
 
@@ -68,7 +68,8 @@ def normalized(matrix, eps):
 
 class DSSMEmbed(nn.Module):
     def __init__(self, dict_size=14, height=5, width=5, embed_size=64, state_embed_size=3, embed_conv_channels=None,
-                 n_z=5, eps=1e-4, commitment_cost=0.25, distance_loss_coef=1., do_quantize=True):
+                 n_z=5, eps=1e-4, commitment_cost=0.25, distance_loss_coef=1., dssm_embed_loss_coef=1.,
+                 dssm_z_loss_coef=None, do_quantize=True):
         super().__init__()
         self.relu = nn.ReLU()
 
@@ -83,6 +84,8 @@ class DSSMEmbed(nn.Module):
         self.eps = eps
         self.commitment_cost = commitment_cost
         self.distance_loss_coef = distance_loss_coef
+        self.dssm_embed_loss_coef = dssm_embed_loss_coef
+        self.dssm_z_loss_coef = dssm_z_loss_coef
         self.do_quantize = do_quantize
 
         # phi_1
@@ -175,21 +178,29 @@ class DSSMEmbed(nn.Module):
             total_loss = self.distance_loss_coef * (quant_latent_loss + self.commitment_cost * encoder_latent_loss)
 
             # Straight Through Estimator
-            z_matrix = embed2 + (z_matrix - embed2).detach()
+            # Gradients flow to phi2 parameters
+            z_matrix_from_embed = embed2 + (z_matrix - embed2).detach()
 
             # calculate inner products (Gram matrix)
-            gram = torch.matmul(embed1, z_matrix.T)
+            gram_from_embed = torch.matmul(embed1, z_matrix_from_embed.T)
 
             # apply (positive) temperature scaling
-            output = torch.exp(self.scale) * gram
+            output_from_embed = torch.exp(self.scale) * gram_from_embed
 
-            dssm_loss = criterion(output, target)
-            total_loss += dssm_loss
+            dssm_loss_from_embed = criterion(output_from_embed, target)
+            total_loss += dssm_loss_from_embed * self.dssm_embed_loss_coef
+
+            if self.dssm_z_loss_coef is not None:
+                # Here gradients will flow to z_vectors
+                gram_from_z = torch.matmul(embed1, z_matrix.T)
+                output_from_z = torch.exp(self.scale) * gram_from_z
+                dssm_loss_from_z = criterion(output_from_z, target)
+                total_loss += dssm_loss_from_z * self.dssm_z_loss_coef
 
             z_inds_count = torch.bincount(z_inds, minlength=len(self.z_vectors))
 
-            results = dict(output=output, total_loss=total_loss, encoder_latent_loss=encoder_latent_loss,
-                           dssm_loss=dssm_loss, z_inds_count=z_inds_count)
+            results = dict(output=output_from_embed, total_loss=total_loss, encoder_latent_loss=encoder_latent_loss,
+                           dssm_loss=dssm_loss_from_embed, z_inds_count=z_inds_count)
 
             return results
         else:

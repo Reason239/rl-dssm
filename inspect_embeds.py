@@ -1,7 +1,7 @@
 import comet_ml
-from utils import get_old_experiment, DatasetFromPickle
+from utils import get_old_experiment, DatasetFromPickle, my_collate_fn
 from dssm import DSSMEmbed
-from gridworld import get_grid, join_grids
+from gridworld import join_grids, grid_from_state_data, stage_and_pos_from_state_data
 import pathlib
 import numpy as np
 from collections import defaultdict
@@ -9,15 +9,16 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
 
 experiment_path_base = pathlib.Path('experiments')
 dataset_path = pathlib.Path('datasets/int_1000')
 part = 'train'
-experiment_name = 'quant_q100_dist01_c025'
-n_z = 100
+experiment_name = 'quant_q10_dist01_c025'
+n_z = 10
 show_closest = False
 save_local = True
-save_comet = True
+save_comet = False
 comet_num = -1
 comet_exp_key = None
 batch_size = 256
@@ -27,6 +28,7 @@ n_rows = 10
 figsize = (16, 16)
 pixels_per_tile = 10
 pixels_between = pixels_per_tile // 2
+grid_size = (5, 5)
 
 model = DSSMEmbed(n_z=n_z)
 model_path = experiment_path_base / experiment_name / 'best_model.pth'
@@ -37,8 +39,9 @@ z_vectors_norm = model.z_vectors_norm
 model.eval()
 
 n_buttons = 3
-dataset = DatasetFromPickle(dataset_path / f'{part}.pkl', dtype='int')
-dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, drop_last=False)
+dataset = DatasetFromPickle(dataset_path / f'{part}.pkl', dtype='int',
+                            state_data_path=dataset_path / f'state_data_{part}.pkl')
+dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, drop_last=False, collate_fn=my_collate_fn)
 
 if save_local:
     save_path_base = experiment_path_base / experiment_name / 'inspect_embeds'
@@ -47,22 +50,22 @@ if save_comet:
     comet_experiment = get_old_experiment(experiment_name, comet_num, comet_exp_key)
     print(f'Connected to expirement with key {comet_experiment.get_key()}')
 
-
 closest = [[] for _ in range(n_z)]
 hash_counts = defaultdict(int)
 
 print('Finding closest state transitions...')
-for s, s_prime in tqdm(dataloader):
+for (s, s_prime), (s_data, s_prime_data) in tqdm(dataloader):
     s_embed = model.embed(s)
     s_prime_embed = model.embed(s_prime)
     embed2 = model.phi2(s_prime_embed - s_embed)
     z_inds = torch.argmax(torch.matmul(embed2, z_vectors_norm.T), dim=1)
     z_matrix = z_vectors_norm[z_inds]
     dist = ((embed2 - z_matrix) ** 2).sum(axis=1)
-    for one_s, one_s_prime, z_ind, distance, embed in zip(s, s_prime, z_inds, dist, embed2):
+    for one_s, one_s_prime, one_s_data, one_s_prime_data, z_ind, distance, embed in \
+            zip(s, s_prime, s_data, s_prime_data, z_inds, dist, embed2):
         embed_hash = hash(str(one_s - one_s_prime))
         if embed_hash not in hash_counts:
-            closest[z_ind].append(((one_s, one_s_prime), distance, embed_hash))
+            closest[z_ind].append(((one_s_data, one_s_prime_data), distance, embed_hash))
         hash_counts[embed_hash] += 1
 
 print('Logging pictures...')
@@ -79,11 +82,10 @@ for z_ind in tqdm(range(n_z)):
     for row in axes:
         for ax in row:
             ax.set_axis_off()
-    for i, ((s, s_prime), distance, embed_hash) in enumerate(pairs_to_show):
+    for i, ((s_data, s_prime_data), distance, embed_hash) in enumerate(pairs_to_show):
         ax = axes[i % n_rows, i // n_rows]
-        s, s_prime = s.numpy(), s_prime.numpy()
-        grid_s = get_grid(s, pixels_per_tile=pixels_per_tile, dtype='int', n_buttons=n_buttons)
-        grid_s_prime = get_grid(s_prime, pixels_per_tile=pixels_per_tile, dtype='int', n_buttons=n_buttons)
+        grid_s = grid_from_state_data(*s_data)
+        grid_s_prime = grid_from_state_data(*s_prime_data)
         grid = join_grids(grid_s, grid_s_prime, pixels_between=pixels_between)
         ax.imshow(grid)
         ax.set_title(f'dist: {distance:.3f}, num: {hash_counts[embed_hash]}')
@@ -96,3 +98,47 @@ for z_ind in tqdm(range(n_z)):
         plt.savefig(fname=save_path_base / f'{fig_name}.png')
     if save_comet:
         comet_experiment.log_figure(figure_name=fig_name, figure=plt, overwrite=True)
+    plt.cla()
+    plt.clf()
+    plt.close(fig)
+
+print('Creating the heatplot')
+for z_ind in range(n_z):
+    if closest[z_ind]:
+        (one_s_data, one_s_prime_data), distance, embed_hash = closest[z_ind][0]
+        height, width, n_buttons, _, _, _, _ = one_s_data
+        grid_size = (height, width)
+for z_ind in tqdm(range(n_z)):
+    matrix_stage = np.zeros((3 * n_buttons, 3 * n_buttons))
+    matrix_pos_s = np.zeros(grid_size)
+    matrix_pos_s_prime = np.zeros(grid_size)
+    for (s_data, s_prime_data), distance, embed_hash in closest[z_ind]:
+        stage_s, pos_s = stage_and_pos_from_state_data(*s_data)
+        stage_s_prime, pos_s_prime = stage_and_pos_from_state_data(*s_prime_data)
+        matrix_stage[stage_s, stage_s_prime] += 1
+        matrix_pos_s[pos_s[0], pos_s[1]] += 1
+        matrix_pos_s_prime[pos_s_prime[0], pos_s_prime[1]] += 1
+    fig = plt.figure(constrained_layout=True, figsize=(10, 14))
+    gs = GridSpec(3, 2, figure=fig)
+    ax1 = fig.add_subplot(gs[0:2, :])
+    ax1.set_title(f'Stages for embedding {z_ind}')
+    ax1.imshow(matrix_stage, cmap='Blues')
+    # ax1.colorbar()
+
+    ax2 = fig.add_subplot(gs[2, 0])
+    ax2.set_title('Pos in s')
+    ax2.imshow(matrix_pos_s, cmap='Blues')
+    # ax2.colorbar()
+
+    ax3 = fig.add_subplot(gs[2, 1])
+    ax3.set_title('Pos in s')
+    ax3.imshow(matrix_pos_s_prime, cmap='Blues')
+    # ax3.colorbar()
+    fig_name = f'e_heat_{z_ind}.png'
+    if save_local:
+        plt.savefig(fname=save_path_base / f'{fig_name}.png')
+    if save_comet:
+        comet_experiment.log_figure(figure_name=fig_name, figure=plt, overwrite=True)
+    plt.cla()
+    plt.clf()
+    plt.close(fig)

@@ -1,28 +1,43 @@
-from gridworld import GridWorld, get_grid
+import comet_ml
+from gridworld import GridWorld
 from torch.utils.data import Dataset
 import torch
 import numpy as np
 import pickle
 import pathlib
 import matplotlib.pyplot as plt
-import comet_ml
 
 
 class DatasetFromPickle(Dataset):
-    def __init__(self, data_path, dtype='bool'):
+    def __init__(self, data_path, dtype='bool', state_data_path=None):
         with open(data_path, 'rb') as f:
             self.data = pickle.load(f)
+        if state_data_path is not None:
+            with open(state_data_path, 'rb') as f:
+                self.state_data = pickle.load(f)
+        else:
+            self.state_data = None
+        if dtype not in ['int', 'bool']:
+            raise Exception(f'Incorrect dtype {dtype}. Should be "int" or "bool"')
         self.dtype = dtype
 
     def __getitem__(self, idx):
         if self.dtype == 'bool':
-            return tuple(torch.from_numpy(s.astype(np.float32)) for s in self.data[idx])
-        if self.dtype == 'int':
-            return tuple(torch.from_numpy(s.astype(np.int)) for s in self.data[idx])
-        raise ValueError
+            value = tuple(torch.from_numpy(s.astype(np.float32)) for s in self.data[idx])
+        else:  # self.dtype == 'int'
+            value = tuple(torch.from_numpy(s.astype(int)) for s in self.data[idx])
+        if self.state_data is not None:
+            value = (value, self.get_state_data(idx))
+        return value
 
     def get_raw(self, idx):
         return self.data[idx]
+
+    def get_state_data(self, idx):
+        if self.state_data is not None:
+            return self.state_data[idx]
+        else:
+            raise Exception('No state data provided')
 
     def __len__(self):
         return len(self.data)
@@ -126,11 +141,11 @@ def plot_gridworld(n_rows=2, n_cols=3, figsize=(10, 6), eps=0, save_path='gridwo
     env = GridWorld(5, 5, 3, obs_dtype=dtype)
     obs = env.reset()
     done = False
-    grids = [get_grid(obs, dtype=dtype, n_buttons=3)]
+    grids = [env.render(mode='get_grid')]
     while not done:
         action = env.get_expert_action(eps=eps)
         obs, _, done, _ = env.step(action)
-        grids.append(get_grid(obs, dtype=dtype, n_buttons=3))
+        grids.append(env.render(mode='get_grid'))
     if total < len(grids):
         display_ind = np.linspace(0, len(grids) - 1, total, dtype=int)
         grids = [grids[i] for i in display_ind]
@@ -160,3 +175,11 @@ def get_old_experiment(name, number=-1, key=None):
         key = keys[number]
     experiment = comet_ml.ExistingExperiment(previous_experiment=key, display_summary_level=0)
     return experiment
+
+
+def my_collate_fn(batch):
+    s_batch = torch.stack([obj[0][0] for obj in batch])
+    s_prime_batch = torch.stack([obj[0][1] for obj in batch])
+    s_data_batch = [obj[1][0] for obj in batch]
+    s_prime_data_batch = [obj[1][1] for obj in batch]
+    return ((s_batch, s_prime_batch), (s_data_batch, s_prime_data_batch))

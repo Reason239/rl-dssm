@@ -1,8 +1,8 @@
-from collections import Counter
 import gym
 from gym import spaces
 from gym.envs.classic_control.rendering import SimpleImageViewer
 import numpy as np
+from copy import copy
 
 
 def repeat_upsample(rgb_array, k=1, l=1):
@@ -11,93 +11,27 @@ def repeat_upsample(rgb_array, k=1, l=1):
     return np.repeat(np.repeat(rgb_array, k, axis=0), l, axis=1)
 
 
-def rgb_embed(vector, n_buttons, dtype='bool'):
-    rgb = np.array([0, 0, 0], dtype=np.uint8)
-    if dtype == 'bool':
-        if vector[0]:
-            rgb[0] += 200
-        ind_max = np.argmax(vector[1:]) + 1
-        ind_button = (ind_max - 1) // 2
-        if vector[ind_max]:
-            if ind_max % 2 == 0:
-                # unpressed, green
-                rgb[1] += 100 + 155 * (n_buttons - ind_button) // n_buttons
-            else:
-                # pressed, blue
-                rgb[2] += 100 + 155 * (n_buttons - ind_button) // n_buttons
-    elif dtype == 'int':
-        if vector > 2 * n_buttons:
-            rgb[0] += 200
-            vector -= 2 * n_buttons + 1
-        if vector:
-            ind_button = (vector - 1) // 2
-            if vector % 2 == 0:
-                # unpressed, green
-                rgb[1] += 100 + 155 * (n_buttons - ind_button) // n_buttons
-            else:
-                # pressed, blue
-                rgb[2] += 100 + 155 * (n_buttons - ind_button) // n_buttons
-    else:
-        raise ValueError(f'Incorrect dtype: {dtype}, shuld be "bool" or "int"')
-    return rgb
-
-
-def get_stage_and_pos(state):
-    depth = state.shape[0]
-    odd = np.arange(1, depth, 2)
-    even = np.arange(2, depth, 2)
-    stage = 0
-    pressed = np.any(state[odd, :, :], axis=0)
-    unpressed = np.any(state[even, :, :], axis=0)
-    stage += 3 * pressed.sum()
-    pos = np.argwhere(state[0, :, :])[0]
-    if pressed[pos[0], pos[1]]:
-        stage -= 1
-    elif unpressed[pos[0], pos[1]]:
+def stage_and_pos_from_state_data(height, width, n_buttons, button_pos, pixels_per_tile, pos, next_button):
+    stage = 3 * next_button
+    if next_button < n_buttons and np.all(pos == button_pos[next_button]):
+        # standing on the next button
         stage += 1
+    if next_button > 0 and np.all(pos == button_pos[next_button - 1]):
+        # standing on a p(just) pressed button
+        stage -= 1
     return stage, pos
 
 
-bool2color = {(False, False, False): 'black', (False, False, True): 'blue', (False, True, False): 'green',
-              (True, False, False): 'red', (True, False, True): 'purple', (True, True, False): 'orange'}
-
-
-def get_color(rgb):
-    return bool2color[tuple(rgb > 0)]
-
-
-def get_colors(grid):
-    return Counter(get_color(rgb) for rgb in grid.reshape((-1, 3)))
-
-
-def is_starting(grid):
-    return grid[0, 0, 0] and not np.any(grid[:, :, 2])
-
-
-def is_final(grid):
-    return not np.any(grid[:, :, 1])
-
-
-def n_pressed(grid):
-    return (grid[:, :, 2] > 0).sum()
-
-
-def get_grid(state, pixels_per_tile=10, dtype='bool', n_buttons=3):
-    if dtype == 'bool':
-        depth, height, width = state.shape
-        assert n_buttons == depth // 2
-    elif dtype == 'int':
-        height, width = state.shape
-    else:
-        raise ValueError(f'Incorrect dtype: {dtype}, shuld be "bool" or "int"')
+def grid_from_state_data(height, width, n_buttons, button_pos, pixels_per_tile, pos, next_button):
     grid = np.zeros((height, width, 3), dtype=np.uint8)
-    for h in range(height):
-        for w in range(width):
-            if dtype == 'bool':
-                vector = state[:, h, w]
-            else:
-                vector = state[h, w]
-            grid[h, w, :] = rgb_embed(vector, n_buttons, dtype)
+    h, w = pos
+    grid[h, w, 0] += 200
+    for ind, b_pos in enumerate(button_pos):
+        h, w = b_pos
+        if ind >= next_button:
+            grid[h, w, 1] += 100 + 155 * (n_buttons - ind) // n_buttons
+        else:
+            grid[h, w, 2] += 100 + 155 * (n_buttons - ind) // n_buttons
     grid = repeat_upsample(grid, pixels_per_tile, pixels_per_tile)
     return grid
 
@@ -118,7 +52,8 @@ class GridWorld(gym.Env):
     name2action = {k: v for v, k in enumerate(action2name)}
     action2delta = np.array([[-1, 0], [1, 0], [0, -1], [0, 1], [0, 0]], dtype=np.int)
 
-    def __init__(self, height=5, width=5, n_buttons=3, button_pos=None, pixels_per_tile=50, seed=None, obs_dtype='bool'):
+    def __init__(self, height=5, width=5, n_buttons=3, button_pos=None, pixels_per_tile=10, seed=None,
+                 obs_dtype='bool'):
         """
         :param height: height of the world (in tiles)
         :param width: width of the world (in tiles)
@@ -219,18 +154,13 @@ class GridWorld(gym.Env):
                 self.viewer = None
             return
         if mode == 'human':
-            grid = np.zeros((self.height, self.width, 3), dtype=np.int8)
-            h, w = self.pos
-            grid[h, w, 0] += 200
-            for ind, b_pos in enumerate(self.button_pos):
-                h, w = b_pos
-                if ind >= self.next_button:
-                    grid[h, w, 1] += 100 + 155 * (self.n_buttons - ind) // self.n_buttons
-                else:
-                    grid[h, w, 2] += 100 + 155 * (self.n_buttons - ind) // self.n_buttons
-            grid = repeat_upsample(grid, self.pixels_per_tile, self.pixels_per_tile)
+            grid = grid_from_state_data(self.height, self.width, self.n_buttons, self.button_pos, self.pixels_per_tile,
+                                        self.pos, self.next_button)
             self.viewer.imshow(grid)
             return self.viewer.isopen
+        elif mode == 'get_grid':
+            return grid_from_state_data(self.height, self.width, self.n_buttons, self.button_pos, self.pixels_per_tile,
+                                        self.pos, self.next_button)
         else:
             return
 
@@ -271,9 +201,10 @@ class GridWorld(gym.Env):
         self.next_button = np.random.randint(0, self.n_buttons)
         return self.get_observation()
 
-    def get_all_next_states(self):
+    def get_all_next_states_with_data(self):
         backup = self.pos.copy(), self.next_button
         states = []
+        data = []
         for next_button in range(self.next_button, self.n_buttons):
             for pos_h in range(self.height):
                 for pos_w in range(self.width):
@@ -281,9 +212,16 @@ class GridWorld(gym.Env):
                     self.pos[1] = pos_w
                     self.next_button = next_button
                     states.append(self.get_observation())
+                    data.append(self.get_state_data())
         self.next_button = self.n_buttons
         self.pos[:] = self.button_pos[-1]
         states.append(self.get_observation())
+        data.append(self.get_state_data())
 
         self.pos, self.next_button = backup
-        return states
+        return states, data
+
+    def get_state_data(self):
+        return (
+            copy(self.height), copy(self.width), copy(self.n_buttons), copy(self.button_pos),
+            copy(self.pixels_per_tile), copy(self.pos), copy(self.next_button))

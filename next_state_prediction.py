@@ -1,6 +1,6 @@
 import comet_ml
 from utils import get_old_experiment
-from gridworld import GridWorld, get_grid
+from gridworld import GridWorld, grid_from_state_data
 from dssm import DSSM, DSSMEmbed
 
 import numpy as np
@@ -20,19 +20,20 @@ def plot_next_from_random(model, n_env, n_top, figsize, seed_base=10000, seed_in
         env = GridWorld(5, 5, 3, seed=seed_base + i_env * seed_increment, obs_dtype=dtype)
         env.reset()
         s = env.to_random_state(seed=i_env)
-        s_primes = env.get_all_next_states()
+        s_data = env.get_state_data()
+        s_primes, s_primes_data = env.get_all_next_states_with_data()
         s_model = torch.unsqueeze(torch.from_numpy(s.astype(np_dtype)), 0)
         s_prime_model = torch.stack([torch.from_numpy(s_prime.astype(np_dtype)) for s_prime in s_primes], dim=0)
         out = torch.squeeze(model((s_model, s_prime_model)))
         ind_sorted = sorted(list(range(len(s_primes))), key=lambda i: out[i], reverse=True)[:n_top]
 
         ax = axes[i_env, 0]
-        ax.imshow(get_grid(s, dtype=dtype, n_buttons=n_buttons))
+        ax.imshow(grid_from_state_data(*s_data))
         ax.set_title('Starting state')
 
         for j, i_top in enumerate(ind_sorted):
             ax = axes[i_env, j + 1]
-            ax.imshow(get_grid(s_primes[i_top], dtype=dtype, n_buttons=n_buttons))
+            ax.imshow(grid_from_state_data(*(s_primes_data[i_top])))
             ax.set_title(f'pred: {out[i_top]:.2f}')
 
     fig.suptitle('Next state predictions for random states')
@@ -63,7 +64,7 @@ if __name__ == '__main__':
     experiment_name = 'quant_q50_dist01_c025'
     n_z = 50
     save_local = True
-    save_comet = True
+    save_comet = False
     comet_num = -1
     comet_exp_key = None
     embed_size = 64
@@ -71,7 +72,7 @@ if __name__ == '__main__':
     n_top = 15
     seed_base = 0
     seed_increment = 0
-    name = f'{n_env}_{n_top}_{seed_base}.png'
+    name = f'{n_env}_{n_top}_{seed_base}_new.png'
     figsize = (2 * n_top + 1, 2 * n_env + 1)
 
     model = DSSMEmbed(n_z=n_z)
