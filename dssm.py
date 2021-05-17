@@ -62,12 +62,12 @@ class DSSM(nn.Module):
         return results
 
 
-def normalized(matrix, eps):
+def normalized(matrix, eps=0.):
     return matrix / (torch.sqrt(torch.sum(matrix ** 2, dim=1, keepdim=True)) + eps)
 
 
 class DSSMEmbed(nn.Module):
-    def __init__(self, dict_size=14, height=5, width=5, embed_size=64, state_embed_size=3, embed_conv_channels=None,
+    def __init__(self, dict_size=14, height=5, width=5, embed_size=64, state_embed_size=3, embed_conv_size=None,
                  n_z=5, eps=1e-4, commitment_cost=0.25, distance_loss_coef=1., dssm_embed_loss_coef=1.,
                  dssm_z_loss_coef=None, do_quantize=True):
         super().__init__()
@@ -75,8 +75,8 @@ class DSSMEmbed(nn.Module):
 
         # state embedding
         self.state_embed = nn.Embedding(dict_size, state_embed_size, max_norm=1)
-        if embed_conv_channels is not None:
-            self.conv_embed = nn.Conv2d(in_channels=state_embed_size, out_channels=embed_conv_channels, kernel_size=3,
+        if embed_conv_size is not None:
+            self.conv_embed = nn.Conv2d(in_channels=state_embed_size, out_channels=embed_conv_size, kernel_size=3,
                                         padding=1)
         else:
             self.conv_embed = None
@@ -89,7 +89,7 @@ class DSSMEmbed(nn.Module):
         self.do_quantize = do_quantize
 
         # phi_1
-        in_channels = embed_conv_channels or state_embed_size
+        in_channels = embed_conv_size or state_embed_size
         # batch * in_channels * height * width
         self.phi1_conv1 = nn.Conv2d(in_channels=in_channels, out_channels=16, kernel_size=3, padding=1)
         # batch * 16 * height * width
@@ -208,4 +208,222 @@ class DSSMEmbed(nn.Module):
             total_loss = criterion(output, target)
             results = dict(output=output, total_loss=total_loss, encoder_latent_loss=torch.Tensor([0]),
                            dssm_loss=total_loss, z_inds_count=torch.Tensor([1]))
+            return results
+
+
+def run_modules(x, modules, last_activation=False):
+    if modules is None:
+        return x
+    for module in modules[:-1]:
+        x = nn.functional.relu(module(x))
+    x = modules[-1](x)
+    if last_activation:
+        x = nn.functional.relu(x)
+    return x
+
+
+class DSSMReverse(nn.Module):
+    def __init__(self, dict_size=14, height=5, width=5, embed_size=64, state_embed_size=3, embed_conv_channels=None,
+                 phi_conv_channels=(16, 32), fc_sizes=None, do_normalize=False, n_z=5, eps=1e-4, commitment_cost=0.25,
+                 distance_loss_coef=1., dssm_embed_loss_coef=1., dssm_z_loss_coef=None, do_quantize=True):
+        super().__init__()
+        self.relu = nn.ReLU()
+        phi_conv_channels = list(phi_conv_channels)
+
+        # state embedding
+        self.state_embed = nn.Embedding(dict_size, state_embed_size, max_norm=1)
+        if embed_conv_channels is not None:
+            in_channels_nums = [state_embed_size] + embed_conv_channels[:-1]
+            self.embed_conv = nn.ModuleList(
+                [nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, padding=1) for
+                 in_channels, out_channels in zip(in_channels_nums, embed_conv_channels)]
+            )
+        else:
+            self.embed_conv = None
+
+        self.embed_size = embed_size
+        self.eps = eps
+        self.do_normalize = do_normalize
+        self.commitment_cost = commitment_cost
+        self.distance_loss_coef = distance_loss_coef
+        self.dssm_embed_loss_coef = dssm_embed_loss_coef
+        self.dssm_z_loss_coef = dssm_z_loss_coef
+        self.do_quantize = do_quantize
+
+        # phi_1
+        in_channels = embed_conv_channels[-1] if embed_conv_channels else state_embed_size
+        # batch * in_channels * height * width
+        in_channels_nums = [in_channels] + phi_conv_channels[:-1]
+        self.phi1_conv = nn.ModuleList(
+            [nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, padding=1) for
+             in_channels, out_channels in zip(in_channels_nums, phi_conv_channels)]
+        )
+        # batch * channels * height * width -> flatten
+        self.phi1_linear = nn.Linear(phi_conv_channels[-1] * height * width, embed_size)
+
+        # phi_2 - same architecture as phi_1
+        self.phi2_conv = nn.ModuleList(
+            [nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, padding=1) for
+             in_channels, out_channels in zip(in_channels_nums, phi_conv_channels)]
+        )
+        self.phi2_linear = nn.Linear(phi_conv_channels[-1] * height * width, embed_size)
+
+        # z vectors - quantized embeddings
+        self.z_vectors = nn.Parameter(torch.randn(n_z, embed_size))
+
+        # Fully connected
+        if fc_sizes:
+            in_features_num = [embed_size] + fc_sizes[:-1]
+            self.fc_layers = nn.ModuleList(
+                [nn.Linear(in_features=in_features, out_features=out_features) for in_features, out_features in
+                 zip(in_features_num, fc_sizes)]
+            )
+        else:
+            self.fc_layers = None
+
+        # phi_3 - same as phi_1 (or phi_2) + fully connected
+        self.phi3_conv = nn.ModuleList(
+            [nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, padding=1) for
+             in_channels, out_channels in zip(in_channels_nums, phi_conv_channels)]
+        )
+        self.phi3_linear = nn.Linear(phi_conv_channels[-1] * height * width, embed_size)
+        if fc_sizes:
+            self.phi3_fc = nn.ModuleList(
+                [nn.Linear(in_features=in_features, out_features=out_features) for in_features, out_features in
+                 zip(in_features_num, fc_sizes)]
+            )
+        else:
+            self.phi3_fc = None
+
+        # alpha (temperature scale)
+        self.scale = torch.nn.Parameter(torch.ones((1,)))
+
+    def embed(self, s):
+        x = self.state_embed(s).permute(0, 3, 1, 2)
+        x = run_modules(x, self.embed_conv, last_activation=True)
+        return x
+
+    def phi1(self, x):
+        x = run_modules(x, self.phi1_conv, last_activation=True)
+        x = torch.flatten(x, start_dim=1)
+        x = self.phi1_linear(x)
+        if self.do_normalize:
+            x = normalized(x)
+        return x
+
+    def phi2(self, x):
+        x = run_modules(x, self.phi2_conv, last_activation=True)
+        x = torch.flatten(x, start_dim=1)
+        x = self.phi2_linear(x)
+        if self.do_normalize:
+            x = normalized(x)
+        return x
+
+    def get_z_vectors(self):
+        if self.do_normalize:
+            return normalized(self.z_vectors)
+        else:
+            return self.z_vectors
+
+    def quantize(self, x):
+        z_vectors = self.get_z_vectors()
+        batch_z = torch.unsqueeze(z_vectors, dim=0)
+        batch_x = torch.unsqueeze(x, dim=0)
+        # Batched pairwise distance
+        dist = torch.squeeze(torch.cdist(batch_x, batch_z, p=2.), dim=0)
+        z_inds = torch.argmax(dist, dim=1)
+        z_matrix = z_vectors[z_inds]
+        return {'z_matrix': z_matrix, 'z_inds': z_inds}
+
+    def fc(self, x):
+        x = run_modules(x, self.fc_layers, last_activation=False)
+        x = normalized(x, self.eps)
+        return x
+
+    def phi3(self, x):
+        x = run_modules(x, self.phi3_conv, last_activation=True)
+        x = torch.flatten(x, start_dim=1)
+        x = self.phi3_linear(x)
+        x = run_modules(x, self.phi3_fc, last_activation=False)
+        x = normalized(x, self.eps)
+        return x
+
+    def forward(self, x):
+        s, s_prime = x
+        s_embed = self.embed(s)
+        s_prime_embed = self.embed(s_prime)
+
+        s_intermediate = self.phi1(s_embed)
+        diff_intermediate = self.phi2(s_prime_embed - s_embed)
+        s_prime_out = self.phi3(s_prime_embed)
+
+        # quantize
+        if self.do_quantize:
+            diff_quant = self.quantize(diff_intermediate)
+        else:
+            diff_quant = diff_intermediate
+
+        s_out = self.fc(s_intermediate + diff_quant)
+
+        # calculate inner products (Gram matrix)
+        gram = torch.matmul(s_out, s_prime_out)
+
+        # apply (positive) temperature scaling
+        output = torch.exp(self.scale) * gram
+
+        return output
+
+    def forward_and_loss(self, x, criterion, target):
+        """Output is the same as with forward"""
+        if self.do_quantize:
+            s, s_prime = x
+            s_embed = self.embed(s)
+            s_prime_embed = self.embed(s_prime)
+
+            s_intermediate = self.phi1(s_embed)
+            diff_intermediate = self.phi2(s_prime_embed - s_embed)
+            s_prime_out = self.phi3(s_prime_embed)
+
+            # quantize
+            results = self.quantize(diff_intermediate)
+            diff_quant = results['z_matrix']
+            z_inds = results['z_inds']
+
+            encoder_latent_loss = ((diff_quant.detach() - diff_intermediate) ** 2).mean() * self.embed_size
+            quant_latent_loss = ((diff_quant - diff_intermediate.detach()) ** 2).mean() * self.embed_size
+            total_loss = self.distance_loss_coef * (quant_latent_loss + self.commitment_cost * encoder_latent_loss)
+
+            # Straight Through Estimator
+            # Gradients flow to phi2 parameters
+            diff_quant_from_embed = diff_intermediate + (diff_quant - diff_intermediate).detach()
+            s_out_from_embed = self.fc(s_intermediate + diff_quant_from_embed)
+
+            # calculate inner products (Gram matrix)
+            gram_from_embed = torch.matmul(s_out_from_embed, s_prime_out.T)
+
+            # apply (positive) temperature scaling
+            output_from_embed = torch.exp(self.scale) * gram_from_embed
+
+            dssm_loss_from_embed = criterion(output_from_embed, target)
+            total_loss += dssm_loss_from_embed * self.dssm_embed_loss_coef
+
+            if self.dssm_z_loss_coef is not None:
+                # Here gradients will flow to z_vectors
+                s_out_from_z = self.fc(s_intermediate + diff_quant)
+                gram_from_z = torch.matmul(s_out_from_z, s_prime_out.T)
+                output_from_z = torch.exp(self.scale) * gram_from_z
+                dssm_loss_from_z = criterion(output_from_z, target)
+                total_loss += dssm_loss_from_z * self.dssm_z_loss_coef
+
+            results = dict(output=output_from_embed, total_loss=total_loss, encoder_latent_loss=encoder_latent_loss,
+                           dssm_loss=dssm_loss_from_embed)
+
+            z_inds_count = torch.bincount(z_inds, minlength=len(self.z_vectors))
+            results['z_inds_count'] = z_inds_count
+
+            return results
+        else:
+            output = self.forward(x)
+            total_loss = criterion(output, target)
+            results = dict(output=output, total_loss=total_loss, dssm_loss=total_loss)
             return results

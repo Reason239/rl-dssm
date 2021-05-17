@@ -1,7 +1,7 @@
 import comet_ml
 
 from utils import DatasetFromPickle, BatchIterator, SmallBatchIterator
-from dssm import DSSM, DSSMEmbed
+from dssm import DSSM, DSSMEmbed, DSSMReverse
 
 import numpy as np
 import torch
@@ -15,11 +15,9 @@ from collections import defaultdict
 from contextlib import nullcontext
 
 
-def train_dssm(experiment_name, dataset_name='int_1000', use_comet=False, comet_tag=None, comet_disabled=False,
-               save=False, n_trajectories=16, pairs_per_trajectory=4, n_epochs=60, patience_ratio=1, embed_size=64,
-               device='cpu', do_eval=True, model_type='DSSMEmbed', state_embed_size=3, embed_conv_channels=None, n_z=10,
-               commitment_cost=0.25, dssm_embed_loss_coef=1., dssm_z_loss_coef=None, distance_loss_coef=0.1,
-               dssm_eps=1e-4, do_quantize=True):
+def train_dssm(model, experiment_name, dataset_name='int_1000', use_comet=False, comet_tags=None, comet_disabled=False,
+               save=False, n_trajectories=16, pairs_per_trajectory=4, n_epochs=60, patience_ratio=1, device='cpu',
+               do_eval=True, do_quantize=True, model_kwargs=None):
     np.random.seed(42)
     dataset_path = f'datasets/{dataset_name}/'
     experiment_path_base = 'experiments/'
@@ -27,15 +25,17 @@ def train_dssm(experiment_name, dataset_name='int_1000', use_comet=False, comet_
     patience = max(1, int(n_epochs * patience_ratio))
     if device == 'cuda':
         torch.cuda.empty_cache()
-    dtype_for_torch = int if model_type == 'DSSMEmbed' else np.float32  # int for embeddings, float for convolutions
+    dtype_for_torch = np.float32 if isinstance(model, DSSM) else int  # int for embeddings, float for convolutions
 
     # Setup Comet.ml
     if use_comet:
         comet_experiment = comet_ml.Experiment(project_name='gridworld_dssm', auto_metric_logging=False,
                                                disabled=comet_disabled)
         comet_experiment.set_name(experiment_name)
-        if comet_tag is not None:
-            comet_experiment.add_tag(comet_tag)
+        comet_experiment.log_parameters(model_kwargs)
+        if comet_tags:
+            comet_experiment.add_tags(comet_tags)
+
         train_context = comet_experiment.train
         eval_context = comet_experiment.validate
     else:
@@ -58,18 +58,6 @@ def train_dssm(experiment_name, dataset_name='int_1000', use_comet=False, comet_
                                   n_trajectories, pairs_per_trajectory, None, dtype_for_torch)
     test_batches = BatchIterator(dataset_path + 'test.pkl', dataset_path + 'idx_test.pkl',
                                  n_trajectories, pairs_per_trajectory, None, dtype_for_torch)
-
-    # Prepare the model
-    if model_type == 'DSSM':
-        model = DSSM(in_channels=7, height=5, width=5, embed_size=embed_size)
-    elif model_type == 'DSSMEmbed':
-        model = DSSMEmbed(dict_size=14, height=5, width=5, embed_size=embed_size, state_embed_size=state_embed_size,
-                          embed_conv_channels=embed_conv_channels, n_z=n_z, eps=dssm_eps,
-                          commitment_cost=commitment_cost,
-                          distance_loss_coef=distance_loss_coef, dssm_embed_loss_coef=dssm_embed_loss_coef,
-                          dssm_z_loss_coef=dssm_z_loss_coef, do_quantize=do_quantize)
-    else:
-        raise Exception(f'Incorrect model_type {model_type}, should be "DSSM" or "DSSMEmbed"')
 
     criterion = nn.CrossEntropyLoss()
     target = torch.arange(0, batch_size).to(device)
@@ -122,8 +110,8 @@ def train_dssm(experiment_name, dataset_name='int_1000', use_comet=False, comet_
                     for key, value in results.items():
                         if 'loss' in key:
                             comet_experiment.log_metric(key, value.item())
-                # Log quantized vectors indices conut
-                if isinstance(model, DSSMEmbed):
+                # Log quantized vectors indices count
+                if (isinstance(model, DSSMEmbed) or isinstance(model, DSSMReverse)) and do_quantize:
                     z_inds_count += results['z_inds_count']
 
             train_loss /= train_total
@@ -131,8 +119,9 @@ def train_dssm(experiment_name, dataset_name='int_1000', use_comet=False, comet_
             train_losses.append(train_loss)
             train_accs.append(train_acc)
             if use_comet:
-                comet_experiment.log_metrics({'epoch_loss': train_loss, 'accuracy': train_acc})
-                if isinstance(model, DSSMEmbed):
+                comet_experiment.log_metrics({'epoch_loss': train_loss, 'accuracy': train_acc,
+                                              'dssm_scale': torch.exp(model.scale).item()})
+                if (isinstance(model, DSSMEmbed) or isinstance(model, DSSMReverse)) and do_quantize:
                     z_inds_count = z_inds_count / z_inds_count.sum()
                     comet_experiment.log_text('Counts: ' + ' '.join(f'{num:.1%}' for num in z_inds_count))
 
@@ -162,10 +151,12 @@ def train_dssm(experiment_name, dataset_name='int_1000', use_comet=False, comet_
                 if use_comet:
                     comet_experiment.log_metrics({'epoch_loss': test_loss, 'accuracy': test_acc})
                     # Log embedding distance matrix
-                    if isinstance(model, DSSMEmbed):
-                        z_vectors_norm = model.z_vectors_norm
-                        z_vectors_norm_batch = z_vectors_norm.unsqueeze(0)
-                        embed_dist_matr = torch.cdist(z_vectors_norm_batch, z_vectors_norm_batch).squeeze()
+                    if isinstance(model, DSSMEmbed) or isinstance(model, DSSMReverse):
+                        z_vectors = model.z_vectors_norm if isinstance(model, DSSMEmbed) else model.get_z_vectors()
+                        z_vectors = z_vectors.detach()
+                        z_vectors_batch = z_vectors.unsqueeze(0)
+                        embed_dist_matr = torch.cdist(z_vectors_batch, z_vectors_batch).squeeze().cpu().numpy()
+                        np.fill_diagonal(embed_dist_matr, torch.sqrt((z_vectors ** 2).sum(axis=1)).cpu().numpy())
                         comet_experiment.log_confusion_matrix(matrix=embed_dist_matr,
                                                               title='Embeddings distance matrix')
 
@@ -195,8 +186,7 @@ def train_dssm(experiment_name, dataset_name='int_1000', use_comet=False, comet_
         info = dict(dataset_path=dataset_path, batch_size=batch_size, n_trajectories=n_trajectories,
                     pairs_per_trajectory=pairs_per_trajectory, n_epochs=n_epochs, n_epochs_run=n_epochs_run,
                     best_epoch=best_epoch, best_test_acc=best_test_acc, device=str(device),
-                    embed_size=embed_size, dtype_for_torch=dtype_for_torch, state_embed_size=state_embed_size,
-                    n_z=n_z, dssm_eps=dssm_eps)
+                    dtype_for_torch=dtype_for_torch)
 
         if save:
             metrics = {'train_losses': train_losses, 'test_losses': test_losses,
@@ -205,7 +195,10 @@ def train_dssm(experiment_name, dataset_name='int_1000', use_comet=False, comet_
                 pickle.dump(metrics, f)
 
             with open(experiment_path / 'info.json', 'w') as f:
-                json.dump(info, f, indent=4)
+                json.dump(info.update(model_kwargs), f, indent=4)
+
+            with open(experiment_path / 'model_kwargs.csv', 'wb') as f:
+                pickle.dump(model_kwargs, f)
 
             with open(experiment_path_base + 'summary.csv', 'a') as f:
                 f.write(experiment_name + f',{best_test_acc}')

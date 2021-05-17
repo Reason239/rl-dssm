@@ -6,6 +6,7 @@ import numpy as np
 import pickle
 import pathlib
 import matplotlib.pyplot as plt
+from itertools import product
 
 
 class DatasetFromPickle(Dataset):
@@ -68,6 +69,15 @@ class BatchIterator:
             batch_s = []
             batch_s_prime = []
             batch_seeds = np.random.choice(self.seeds, self.n_trajectories, replace=False)
+            # If there are not enough pairs in a trajectory:
+            for _ in range(10):
+                if all(self.idx[seed][1] - self.idx[seed][0] >= self.pairs_per_trajectory for seed in batch_seeds):
+                    break
+                else:
+                    batch_seeds = np.random.choice(self.seeds, self.n_trajectories, replace=False)
+            else:
+                raise Exception(
+                    f'Too many retries to find a batch with pairs_per_trajectory={self.pairs_per_trajectory}')
             for seed in batch_seeds:
                 start, stop = self.idx[seed]
                 indices = np.random.choice(np.arange(start, stop), self.pairs_per_trajectory, replace=False)
@@ -183,3 +193,16 @@ def my_collate_fn(batch):
     s_data_batch = [obj[1][0] for obj in batch]
     s_prime_data_batch = [obj[1][1] for obj in batch]
     return ((s_batch, s_prime_batch), (s_data_batch, s_prime_data_batch))
+
+
+def update_and_return(one, other):
+    dic = one.copy()
+    dic.update(other)
+    return dic
+
+
+def get_kwargs_grid_list(grid, other_kwargs):
+    names = grid.keys()
+    grid_kwargs = [dict(list(zip(names, values))) for values in product(*grid.values())]
+    kwargs_list = [update_and_return(other_kwargs, dic) for dic in grid_kwargs]
+    return kwargs_list

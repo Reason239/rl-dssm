@@ -7,13 +7,18 @@ from collections import defaultdict
 import pathlib
 
 
-def make_env_index_dataset(data_path, n_envs_train, n_envs_test, eps, dtype, save_state_data=True):
+def make_env_index_dataset(data_path, n_envs_train, n_envs_test, eps, dtype, save_state_data=True,
+                           min_states_interval=None, max_states_interval=None):
     if dtype == 'bool':
         np_dtype = np.bool_
     elif dtype == 'int':
         np_dtype = int
     else:
         raise ValueError
+    if min_states_interval is None:
+        min_states_interval = 1
+    if max_states_interval is None:
+        max_states_interval = 10000
     train = []
     test = []
     if save_state_data:
@@ -45,13 +50,18 @@ def make_env_index_dataset(data_path, n_envs_train, n_envs_test, eps, dtype, sav
             states.append(observation.astype(np_dtype))
             if save_state_data:
                 state_datas.append(env.get_state_data())
-        dataset += list(combinations(states, 2))
-        if save_state_data:
-            state_data += list(combinations(state_datas, 2))
+        prev_len = len(dataset)
+        for i, s in enumerate(states):
+            dataset += [(s, s_prime) for s_prime in states[i + min_states_interval: i + max_states_interval + 1]]
+            if save_state_data:
+                s_data = state_datas[i]
+                state_data += [(s_data, s_prime_data) for s_prime_data in
+                               state_datas[i + min_states_interval: i + max_states_interval + 1]]
+        new_len = len(dataset)
         start = cur_num
-        stop = cur_num + len(states) * (len(states) - 1) // 2
+        stop = cur_num + (new_len - prev_len)
         idx[seed] = (start, stop) if i < n_envs_train else (start - len(train), stop - len(train))
-        cur_num += len(states) * (len(states) - 1) // 2
+        cur_num += new_len - prev_len
 
     # save the data
     path = pathlib.Path(data_path)
@@ -123,10 +133,13 @@ def make_states_dict_dataset(data_path, n_envs_train, n_envs_test, n_runs_per_en
 
 if __name__ == '__main__':
     np.random.seed(42)
-    data_path = 'datasets/all_100/'
-    n_envs_train = 100
-    n_envs_test = 20
+    data_path = 'datasets/all_1000_2_6/'
+    n_envs_train = 1000
+    n_envs_test = 200
+    min_states_interval = 2
+    max_states_interval = 6
     # TODO try eps=0
     eps = 0.05
     # eps = 0
-    make_env_index_dataset(data_path, n_envs_train, n_envs_test, eps, 'bool', save_state_data=True)
+    make_env_index_dataset(data_path, n_envs_train, n_envs_test, eps, 'bool', save_state_data=True,
+                           min_states_interval=min_states_interval, max_states_interval=max_states_interval)
