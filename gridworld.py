@@ -69,7 +69,6 @@ class GridWorld(gym.Env):
         self.button_pos = button_pos
         if seed is not None:
             np.random.seed(seed)
-        self.seed = seed
         if self.button_pos is None:
             self.button_pos = []
             idx = np.random.choice(height * width, n_buttons, replace=False)
@@ -225,3 +224,12 @@ class GridWorld(gym.Env):
         return (
             copy(self.height), copy(self.width), copy(self.n_buttons), copy(self.button_pos),
             copy(self.pixels_per_tile), copy(self.pos), copy(self.next_button))
+
+    def load_state_data(self, height, width, n_buttons, button_pos, pixels_per_tile, pos, next_button):
+        self.height = height
+        self.width = width
+        self.n_buttons = n_buttons
+        self.button_pos = button_pos
+        self.pixels_per_tile = pixels_per_tile
+        self.pos = pos
+        self.next_button = next_button

@@ -1,6 +1,6 @@
 import comet_ml
 
-from utils import DatasetFromPickle, BatchIterator, SmallBatchIterator
+from utils import DatasetFromPickle, BatchIterator, ValidationBatchIterator
 from dssm import DSSM, DSSMEmbed, DSSMReverse
 
 import numpy as np
@@ -12,14 +12,67 @@ import pickle
 from tqdm import tqdm
 import pathlib
 from collections import defaultdict
-from contextlib import nullcontext
 
 
-def train_dssm(model, experiment_name, dataset_name='int_1000', use_comet=False, comet_tags=None, comet_disabled=False,
-               save=False, n_trajectories=16, pairs_per_trajectory=4, n_epochs=60, patience_ratio=1, device='cpu',
-               do_eval=True, do_quantize=True, model_kwargs=None):
+def run_model(model, optimizer, batches, device, criterion, target, mode, do_quantize):
+    assert mode in ['train', 'validate', 'evaluate']
+    losses = defaultdict(float)
+    n_correct = 0
+    n_total = 0
+    z_inds_count = 0
+    if mode == 'train':
+        model.train()
+    else:
+        model.eval()
+    batches.refresh()
+    for ind, (s, s_prime) in enumerate(batches):
+        # get the inputs
+        s = s.to(device)
+        s_prime = s_prime.to(device)
+
+        if mode == 'train':
+            # zero the parameter gradients
+            optimizer.zero_grad()
+
+        # forward + backward + optimize
+        results = model.forward_and_loss((s, s_prime), criterion, target)
+        output = results['output']
+        loss = results['total_loss']
+        if mode == 'train':
+            loss.backward()
+            optimizer.step()
+
+        for key, value in results.items():
+            if 'loss' in key:
+                losses[key] += value.item()
+        _, predicted = torch.max(output.data, 1)
+        n_total += len(predicted)
+        n_correct += predicted.eq(target.data).sum().item()
+
+
+        # Log quantized vectors indices count
+        if (isinstance(model, DSSMEmbed) or isinstance(model, DSSMReverse)) and do_quantize:
+            z_inds_count += results['z_inds_count']
+
+    for key in losses:
+        losses[key] /= len(batches)
+    acc = n_correct / n_total
+
+    results = dict(losses)
+    results['accuracy'] = acc
+    if (isinstance(model, DSSMEmbed) or isinstance(model, DSSMReverse)) and do_quantize:
+        results['z_inds_count'] = z_inds_count
+
+    return results
+
+
+def train_dssm(model, experiment_name, dataset_name='int_1000', evaluate_dataset_name='evaluate_1024_n4', n_negatives=4,
+               evaluate_batch_size=64, use_comet=False, comet_tags=None, comet_disabled=False, save=False,
+               n_trajectories=16, pairs_per_trajectory=4, n_epochs=60, patience_ratio=1, device='cpu', do_eval=True,
+               do_quantize=True, model_kwargs=None):
     np.random.seed(42)
     dataset_path = f'datasets/{dataset_name}/'
+    evaluate_dataset_path = f'datasets/{evaluate_dataset_name}/'
     experiment_path_base = 'experiments/'
     batch_size = n_trajectories * pairs_per_trajectory
     patience = max(1, int(n_epochs * patience_ratio))
@@ -35,13 +88,8 @@ def train_dssm(model, experiment_name, dataset_name='int_1000', use_comet=False,
         comet_experiment.log_parameters(model_kwargs)
         if comet_tags:
             comet_experiment.add_tags(comet_tags)
-
-        train_context = comet_experiment.train
-        eval_context = comet_experiment.validate
     else:
         comet_experiment = None
-        train_context = nullcontext
-        eval_context = nullcontext
 
     # Setup local save path
     if save:
@@ -58,18 +106,19 @@ def train_dssm(model, experiment_name, dataset_name='int_1000', use_comet=False,
                                   n_trajectories, pairs_per_trajectory, None, dtype_for_torch)
     test_batches = BatchIterator(dataset_path + 'test.pkl', dataset_path + 'idx_test.pkl',
                                  n_trajectories, pairs_per_trajectory, None, dtype_for_torch)
+    evaluate_batches = ValidationBatchIterator(evaluate_dataset_path + 'evaluate.pkl',
+                                               evaluate_dataset_path + 'idx_evaluate.pkl', n_negatives,
+                                               evaluate_batch_size, dtype_for_torch)
 
     criterion = nn.CrossEntropyLoss()
     target = torch.arange(0, batch_size).to(device)
+    evaluate_target = (torch.arange(0, evaluate_batch_size) * (n_negatives + 1)).to(device)
+
     optimizer = torch.optim.Adam(model.parameters())
 
-    train_losses = []
-    test_losses = []
-    train_accs = []
     test_accs = []
     best_test_acc = -1
     best_epoch = -1
-    n_epochs_run = 0
 
     model = model.to(device)
 
@@ -77,106 +126,63 @@ def train_dssm(model, experiment_name, dataset_name='int_1000', use_comet=False,
     tqdm_range = tqdm(range(n_epochs))
     for epoch in tqdm_range:
         # train
-        with train_context():
-            train_loss = 0
-            train_correct = 0
-            train_total = 0
-            z_inds_count = 0
-            model.train()
-            train_batches.refresh()
-            for ind, (s, s_prime) in enumerate(train_batches):
-                # get the inputs
-                s = s.to(device)
-                s_prime = s_prime.to(device)
+        mode = 'train'
+        results = run_model(model, optimizer, train_batches, device, criterion, target, mode, do_quantize)
+        # Log all metrics
+        if use_comet:
+            for key, value in results.items():
+                if key != 'z_inds_count':
+                    comet_experiment.log_metric(f'{mode}_{key}', value)
+            comet_experiment.log_metric('dssm_scale', torch.exp(model.scale).item())
+        if (isinstance(model, DSSMEmbed) or isinstance(model, DSSMReverse)) and do_quantize:
+            z_inds_count = results['z_inds_count']
+            z_inds_count = z_inds_count / z_inds_count.sum()
+            comet_experiment.log_text('Counts: ' + ' '.join(f'{num:.1%}' for num in z_inds_count))
 
-                # zero the parameter gradients
-                optimizer.zero_grad()
-
-                # forward + backward + optimize
-                results = model.forward_and_loss((s, s_prime), criterion, target)
-                output = results['output']
-                loss = results['total_loss']
-                loss.backward()
-                optimizer.step()
-
-                loss_item = loss.item()
-                train_loss += loss_item
-                _, predicted = torch.max(output.data, 1)
-                train_total += len(s)
-                train_correct += predicted.eq(target.data).sum().item()
-
-                # Log all losses
-                if use_comet:
-                    for key, value in results.items():
-                        if 'loss' in key:
-                            comet_experiment.log_metric(key, value.item())
-                # Log quantized vectors indices count
-                if (isinstance(model, DSSMEmbed) or isinstance(model, DSSMReverse)) and do_quantize:
-                    z_inds_count += results['z_inds_count']
-
-            train_loss /= train_total
-            train_acc = train_correct / train_total
-            train_losses.append(train_loss)
-            train_accs.append(train_acc)
-            if use_comet:
-                comet_experiment.log_metrics({'epoch_loss': train_loss, 'accuracy': train_acc,
-                                              'dssm_scale': torch.exp(model.scale).item()})
-                if (isinstance(model, DSSMEmbed) or isinstance(model, DSSMReverse)) and do_quantize:
-                    z_inds_count = z_inds_count / z_inds_count.sum()
-                    comet_experiment.log_text('Counts: ' + ' '.join(f'{num:.1%}' for num in z_inds_count))
-
-        # eval
         if do_eval:
-            with eval_context():
-                test_loss = 0
-                test_correct = 0
-                test_total = 0
-                model.eval()
-                test_batches.refresh()
-                for s, s_prime in test_batches:
-                    s = s.to(device)
-                    s_prime = s_prime.to(device)
-                    results = model.forward_and_loss((s, s_prime), criterion, target)
-                    output = results['output']
-                    batch_loss = results['total_loss']
+            # Validate
+            mode = 'validate'
+            results = run_model(model, optimizer, test_batches, device, criterion, target, mode, do_quantize)
+            # Log all metrics
+            if use_comet:
+                for key, value in results.items():
+                    if key != 'z_inds_count':
+                        comet_experiment.log_metric(f'{mode}_{key}', value)
+            # Log embedding distance matrix
+            if isinstance(model, DSSMEmbed) or isinstance(model, DSSMReverse):
+                z_vectors = model.z_vectors_norm if isinstance(model, DSSMEmbed) else model.get_z_vectors()
+                z_vectors = z_vectors.detach()
+                z_vectors_batch = z_vectors.unsqueeze(0)
+                embed_dist_matr = torch.cdist(z_vectors_batch, z_vectors_batch).squeeze().cpu().numpy()
+                np.fill_diagonal(embed_dist_matr, torch.sqrt((z_vectors ** 2).sum(axis=1)).cpu().numpy())
+                comet_experiment.log_confusion_matrix(matrix=embed_dist_matr, title='Embeddings distance matrix')
+            test_accs.append(results['accuracy'])
 
-                    test_loss += batch_loss.item()
-                    _, predicted = torch.max(output.data, 1)
-                    test_total += len(s)
-                    test_correct += predicted.eq(target.data).sum().item()
-                test_loss /= test_total
-                test_acc = test_correct / test_total
-                test_losses.append(test_loss)
-                test_accs.append(test_acc)
-                if use_comet:
-                    comet_experiment.log_metrics({'epoch_loss': test_loss, 'accuracy': test_acc})
-                    # Log embedding distance matrix
-                    if isinstance(model, DSSMEmbed) or isinstance(model, DSSMReverse):
-                        z_vectors = model.z_vectors_norm if isinstance(model, DSSMEmbed) else model.get_z_vectors()
-                        z_vectors = z_vectors.detach()
-                        z_vectors_batch = z_vectors.unsqueeze(0)
-                        embed_dist_matr = torch.cdist(z_vectors_batch, z_vectors_batch).squeeze().cpu().numpy()
-                        np.fill_diagonal(embed_dist_matr, torch.sqrt((z_vectors ** 2).sum(axis=1)).cpu().numpy())
-                        comet_experiment.log_confusion_matrix(matrix=embed_dist_matr,
-                                                              title='Embeddings distance matrix')
+            # Evaluate
+            mode = 'evaluate'
+            results = run_model(model, optimizer, evaluate_batches, device, criterion, evaluate_target, mode,
+                                do_quantize)
+            # Log all metrics
+            if use_comet:
+                for key, value in results.items():
+                    if key != 'z_inds_count':
+                        comet_experiment.log_metric(f'{mode}_{key}', value)
 
-                # save model (best)
-                if test_accs[-1] > best_test_acc:
-                    best_test_acc = test_accs[-1]
-                    best_epoch = epoch
-                    if save:
-                        torch.save(model.state_dict(), experiment_path / 'best_model.pth')
-                tqdm_range.set_postfix(train_loss=train_losses[-1], test_loss=test_losses[-1], test_acc=test_accs[-1])
+            # save model (best)
+            if test_accs[-1] > best_test_acc:
+                best_test_acc = test_accs[-1]
+                best_epoch = epoch
+                if save:
+                    torch.save(model.state_dict(), experiment_path / 'best_model.pth')
+            tqdm_range.set_postfix(test_acc=test_accs[-1], eval_acc=results['accuracy'])
 
-                # stop if test accuracy isn't going up
-                if epoch > best_epoch + patience:
-                    n_epochs_run = epoch
-                    break
+            # stop if test accuracy isn't going up
+            if epoch > best_epoch + patience:
+                n_epochs_run = epoch
+                break
         else:
             if save:
                 torch.save(model.state_dict(), experiment_path / 'best_model.pth')
-
-
     else:
         # if not break:
         n_epochs_run = n_epochs
@@ -189,11 +195,6 @@ def train_dssm(model, experiment_name, dataset_name='int_1000', use_comet=False,
                     dtype_for_torch=dtype_for_torch)
 
         if save:
-            metrics = {'train_losses': train_losses, 'test_losses': test_losses,
-                       'train_accs': train_accs, 'test_accs': test_accs}
-            with open(experiment_path / 'metrics.pkl', 'wb') as f:
-                pickle.dump(metrics, f)
-
             with open(experiment_path / 'info.json', 'w') as f:
                 json.dump(info.update(model_kwargs), f, indent=4)
 

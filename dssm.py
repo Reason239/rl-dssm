@@ -57,6 +57,11 @@ class DSSM(nn.Module):
 
     def forward_and_loss(self, x, criterion, target):
         output = self.forward(x)
+        if len(output) != len(target):
+            bs = len(output)
+            ts = len(target)
+            assert bs % ts == 0
+            output = output[torch.arange(0, bs, bs // ts)]
         total_loss = criterion(output, target)
         results = dict(output=output, total_loss=total_loss, dssm_loss=total_loss)
         return results
@@ -168,6 +173,13 @@ class DSSMEmbed(nn.Module):
             embed1 = self.phi1(s_embed)
             embed2 = self.phi2(s_prime_embed - s_embed)
 
+            # If s are repeated
+            if len(embed1) != len(target):
+                bs = len(embed1)
+                ts = len(target)
+                assert bs % ts == 0, f'{bs} {ts}'
+                embed1 = embed1[torch.arange(0, bs, bs // ts)]
+
             # quantize
             z_vectors_norm = self.z_vectors_norm
             z_inds = torch.argmax(torch.matmul(embed2, z_vectors_norm.T), dim=1)
@@ -205,6 +217,11 @@ class DSSMEmbed(nn.Module):
             return results
         else:
             output = self.forward(x)
+            if len(output) != len(target):
+                bs = len(output)
+                ts = len(target)
+                assert bs % ts == 0
+                output = output[torch.arange(0, bs, bs // ts)]
             total_loss = criterion(output, target)
             results = dict(output=output, total_loss=total_loss, encoder_latent_loss=torch.Tensor([0]),
                            dssm_loss=total_loss, z_inds_count=torch.Tensor([1]))
@@ -398,6 +415,13 @@ class DSSMReverse(nn.Module):
             diff_quant_from_embed = diff_intermediate + (diff_quant - diff_intermediate).detach()
             s_out_from_embed = self.fc(s_intermediate + diff_quant_from_embed)
 
+            # If s are repeated
+            if len(s_out_from_embed) != len(target):
+                bs = len(s_out_from_embed)
+                ts = len(target)
+                assert bs % ts == 0
+                s_out_from_embed = s_out_from_embed[torch.arange(0, bs, bs // ts)]
+
             # calculate inner products (Gram matrix)
             gram_from_embed = torch.matmul(s_out_from_embed, s_prime_out.T)
 
@@ -410,6 +434,8 @@ class DSSMReverse(nn.Module):
             if self.dssm_z_loss_coef is not None:
                 # Here gradients will flow to z_vectors
                 s_out_from_z = self.fc(s_intermediate + diff_quant)
+                if len(s_out_from_z) != len(target):
+                    s_out_from_z = s_out_from_z[torch.arange(0, bs, bs // ts)]
                 gram_from_z = torch.matmul(s_out_from_z, s_prime_out.T)
                 output_from_z = torch.exp(self.scale) * gram_from_z
                 dssm_loss_from_z = criterion(output_from_z, target)
@@ -424,6 +450,12 @@ class DSSMReverse(nn.Module):
             return results
         else:
             output = self.forward(x)
+            # If s are repeated
+            if len(output) != len(target):
+                bs = len(output)
+                ts = len(target)
+                assert bs % ts == 0
+                output = output[torch.arange(0, bs, bs // ts)]
             total_loss = criterion(output, target)
             results = dict(output=output, total_loss=total_loss, dssm_loss=total_loss)
             return results

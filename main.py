@@ -2,18 +2,20 @@ import comet_ml
 import torch
 from train_dssm import train_dssm
 from dssm import DSSM, DSSMEmbed, DSSMReverse
-from itertools import product
 from utils import get_kwargs_grid_list
 
 dataset_name = 'int_1000'
-experiment_name = 'quant_q50_2_32'
+evaluate_dataset_name = 'evaluate_int_1024_n4'
+n_negatives = 4
+evaluate_batch_size = 1
+experiment_name = 'eval_quant_q50_tr164'
 model_type = 'DSSMEmbed'
 use_comet = True
 comet_tags = [model_type]
 comet_disabled = False  # For debugging
 save = True
-n_trajectories = 2
-pairs_per_trajectory = 32
+n_trajectories = 16
+pairs_per_trajectory = 4
 n_epochs = 60
 patience_ratio = 0.5
 embed_size = 64
@@ -56,26 +58,28 @@ elif model_type == 'DSSMReverse':
 else:
     raise Exception(f'Incorrect model_type {model_type}, should be "DSSM" or "DSSMEmbed"')
 
-# parameters_grid = {'fc_sizes': [None, [embed_size, embed_size]],
-#                    'do_normalize': [False, True],
+# parameters_grid = {'embed_conv_size': [None, 3],
 #                    'dssm_z_loss_coef': [None, 1.],
 #                    'n_z': [10, 50]}
 parameters_grid = None
 
 if parameters_grid is None:
-    train_dssm(model=model, experiment_name=experiment_name, dataset_name=dataset_name, use_comet=use_comet,
-               comet_tags=comet_tags, comet_disabled=comet_disabled, save=save, n_trajectories=n_trajectories,
-               pairs_per_trajectory=pairs_per_trajectory, n_epochs=n_epochs, patience_ratio=patience_ratio,
-               device=device,
-               do_eval=do_eval, do_quantize=do_quantize, model_kwargs=kwargs)
+    train_dssm(model=model, experiment_name=experiment_name, evaluate_dataset_name=evaluate_dataset_name,
+               n_negatives=n_negatives, evaluate_batch_size=evaluate_batch_size, dataset_name=dataset_name,
+               use_comet=use_comet, comet_tags=comet_tags, comet_disabled=comet_disabled, save=save,
+               n_trajectories=n_trajectories, pairs_per_trajectory=pairs_per_trajectory, n_epochs=n_epochs,
+               patience_ratio=patience_ratio, device=device, do_eval=do_eval, do_quantize=do_quantize,
+               model_kwargs=kwargs)
 else:
-    comet_tags.append('gs')
+    comet_tags_gs = comet_tags + ['gs']
     kwargs_grid_list = get_kwargs_grid_list(parameters_grid, kwargs)
     total = len(kwargs_grid_list)
     for i, gs_model_kwargs in enumerate(kwargs_grid_list):
-        experiment_name = f'gs_{experiment_name}__{i + 1:02d}'
+        experiment_name_gs = f'gs_{experiment_name}__{i + 1:02d}'
         print(f'\nRunning experiment {i + 1}/{total}\n')
-        train_dssm(model=model, experiment_name=experiment_name, dataset_name=dataset_name, use_comet=use_comet,
-                   comet_tags=comet_tags, comet_disabled=comet_disabled, save=save, n_trajectories=n_trajectories,
+        train_dssm(model=model, experiment_name=experiment_name_gs, dataset_name=dataset_name,
+                   evaluate_dataset_name=evaluate_dataset_name, n_negatives=n_negatives,
+                   evaluate_batch_size=evaluate_batch_size, use_comet=use_comet, comet_tags=comet_tags_gs,
+                   comet_disabled=comet_disabled, save=save, n_trajectories=n_trajectories,
                    pairs_per_trajectory=pairs_per_trajectory, n_epochs=n_epochs, patience_ratio=patience_ratio,
                    device=device, do_eval=do_eval, do_quantize=do_quantize, model_kwargs=gs_model_kwargs)

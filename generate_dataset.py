@@ -51,12 +51,12 @@ def make_env_index_dataset(data_path, n_envs_train, n_envs_test, eps, dtype, sav
             if save_state_data:
                 state_datas.append(env.get_state_data())
         prev_len = len(dataset)
-        for i, s in enumerate(states):
-            dataset += [(s, s_prime) for s_prime in states[i + min_states_interval: i + max_states_interval + 1]]
+        for j, s in enumerate(states):
+            dataset += [(s, s_prime) for s_prime in states[j + min_states_interval: j + max_states_interval + 1]]
             if save_state_data:
-                s_data = state_datas[i]
+                s_data = state_datas[j]
                 state_data += [(s_data, s_prime_data) for s_prime_data in
-                               state_datas[i + min_states_interval: i + max_states_interval + 1]]
+                               state_datas[j + min_states_interval: j + max_states_interval + 1]]
         new_len = len(dataset)
         start = cur_num
         stop = cur_num + (new_len - prev_len)
@@ -79,6 +79,74 @@ def make_env_index_dataset(data_path, n_envs_train, n_envs_test, eps, dtype, sav
         pickle.dump(idx_train, f)
     with open(path / 'idx_test.pkl', 'wb') as f:
         pickle.dump(idx_test, f)
+
+
+def make_validation_index_dataset(data_path, n_envs, n_negatives, expert_eps, fake_eps, dtype):
+    if dtype == 'bool':
+        np_dtype = np.bool_
+    elif dtype == 'int':
+        np_dtype = int
+    else:
+        raise ValueError
+    dataset = []
+    state_data = []
+    button_idxs_used = set()
+    seed = 10000
+    cur_num = 0
+    idx = {}
+    for ind_env in tqdm(range(n_envs)):
+        # generate an env with NEW positions of the buttons
+        repeats = True
+        while repeats:
+            seed += 1
+            env = GridWorld(height=5, width=5, n_buttons=3, seed=seed, obs_dtype=dtype)
+            observation = env.reset()
+            repeats = env.button_idx in button_idxs_used
+        states = [observation.astype(np_dtype)]
+        state_datas = [env.get_state_data()]
+        done = False
+        while not done:
+            observation, _, done, _ = env.step(env.get_expert_action(eps=expert_eps))
+            states.append(observation.astype(np_dtype))
+            state_datas.append(env.get_state_data())
+        n_states = len(states)
+        s_ind, s_prime_ind = np.random.choice(np.arange(n_states), 2, replace=False)
+        s_ind, s_prime_ind = min(s_ind, s_prime_ind), max(s_ind, s_prime_ind)
+        s, s_prime = states[s_ind], states[s_prime_ind]
+        s_data, s_prime_data = state_datas[s_ind], state_datas[s_prime_ind]
+        distance = np.abs(s_data[5] - s_prime_data[5]).sum()
+        negatives = []
+        negatives_data = []
+        for ind_neg in range(n_negatives):
+            env2 = GridWorld(height=5, width=5, n_buttons=3, seed=ind_env * n_negatives + ind_neg, obs_dtype=dtype)
+            env2.load_state_data(*s_data)
+            # Random actions
+            cur_distance = 0
+            target_distance = max(1, distance + np.random.randint(-1, 2))
+            while cur_distance != target_distance:
+                negative, _, done, _ = env2.step(env2.get_expert_action(eps=fake_eps))
+                if done:
+                    break
+                cur_distance = np.abs(s_data[5] - env2.pos).sum()
+            negative_data = env2.get_state_data()
+            negatives.append(negative)
+            negatives_data.append(negative_data)
+        dataset += [(s, s_prime)] + [(s, s_neg) for s_neg in negatives]
+        state_data += [(s_data, s_prime_data)] + [(s_data, s_neg_data) for s_neg_data in negatives_data]
+        start = cur_num
+        stop = cur_num + (1 + n_negatives)
+        idx[seed] = (start, stop)
+        cur_num += 1 + n_negatives
+
+    # save the data
+    path = pathlib.Path(data_path)
+    path.mkdir(parents=True, exist_ok=True)
+    with open(path / 'evaluate.pkl', 'wb') as f:
+        pickle.dump(dataset, f)
+    with open(path / 'state_data_evaluate.pkl', 'wb') as f:
+        pickle.dump(state_data, f)
+    with open(path / 'idx_evaluate.pkl', 'wb') as f:
+        pickle.dump(idx, f)
 
 
 def make_states_dict_dataset(data_path, n_envs_train, n_envs_test, n_runs_per_env, eps):
@@ -133,7 +201,8 @@ def make_states_dict_dataset(data_path, n_envs_train, n_envs_test, n_runs_per_en
 
 if __name__ == '__main__':
     np.random.seed(42)
-    data_path = 'datasets/all_1000_2_6/'
+    dtype = 'int'
+    data_path = f'datasets/evaluate_{dtype}_1024_n4/'
     n_envs_train = 1000
     n_envs_test = 200
     min_states_interval = 2
@@ -141,5 +210,11 @@ if __name__ == '__main__':
     # TODO try eps=0
     eps = 0.05
     # eps = 0
-    make_env_index_dataset(data_path, n_envs_train, n_envs_test, eps, 'bool', save_state_data=True,
-                           min_states_interval=min_states_interval, max_states_interval=max_states_interval)
+    # make_env_index_dataset(data_path, n_envs_train, n_envs_test, eps, 'int', save_state_data=True,
+    #                        min_states_interval=min_states_interval, max_states_interval=max_states_interval)
+    #
+    n_envs = 1024
+    n_negatives = 4
+    expert_eps = 0.05
+    fake_eps = 1.
+    make_validation_index_dataset(data_path, n_envs, n_negatives, expert_eps, fake_eps, dtype)
