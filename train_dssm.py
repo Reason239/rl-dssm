@@ -49,7 +49,6 @@ def run_model(model, optimizer, batches, device, criterion, target, mode, do_qua
         n_total += len(predicted)
         n_correct += predicted.eq(target.data).sum().item()
 
-
         # Log quantized vectors indices count
         if (isinstance(model, DSSMEmbed) or isinstance(model, DSSMReverse)) and do_quantize:
             z_inds_count += results['z_inds_count']

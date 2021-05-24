@@ -1,6 +1,12 @@
 import torch
 from torch import nn
 
+# def inner_product_matrix(vectors1, vectors2, downscale_factor=1):
+#     if downscale_factor == 1:
+#         return torch.matmul(vectors1, torch.transpose(vectors2, 0, 1))
+#     assert len(vectors1) % downscale_factor == 0
+#     vectors1 = vectors1[torch.arange(0, len(vectors1), downscale_factor)].view()
+
 
 class DSSM(nn.Module):
     def __init__(self, in_channels=7, height=5, width=5, embed_size=64):
@@ -164,7 +170,6 @@ class DSSMEmbed(nn.Module):
         return output
 
     def forward_and_loss(self, x, criterion, target):
-        """Output is the same as with forward"""
         if self.do_quantize:
             s, s_prime = x
             s_embed = self.embed(s)
@@ -391,7 +396,6 @@ class DSSMReverse(nn.Module):
         return output
 
     def forward_and_loss(self, x, criterion, target):
-        """Output is the same as with forward"""
         if self.do_quantize:
             s, s_prime = x
             s_embed = self.embed(s)

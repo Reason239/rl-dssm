@@ -6,7 +6,7 @@ import numpy as np
 import pickle
 import pathlib
 import matplotlib.pyplot as plt
-from itertools import product
+from itertools import product, chain
 
 
 class DatasetFromPickle(Dataset):
@@ -242,8 +242,36 @@ def update_and_return(one, other):
     return dic
 
 
-def get_kwargs_grid_list(grid, other_kwargs):
-    names = grid.keys()
-    grid_kwargs = [dict(list(zip(names, values))) for values in product(*grid.values())]
-    kwargs_list = [update_and_return(other_kwargs, dic) for dic in grid_kwargs]
-    return kwargs_list
+def get_parameters_list(base_parameters, parameters_to_vary, base_model_parameters, model_parameters_to_vary,
+                        mode='gs'):
+    itertool = product if mode == 'gs' else zip
+    if mode == 'series':
+        length = len(next(chain(parameters_to_vary.values(), model_parameters_to_vary.values())))
+        for key, value in chain(parameters_to_vary.items(), model_parameters_to_vary.items()):
+            assert len(value) == length, f'Incorrect length of {key}, should be {length}'
+
+    if not parameters_to_vary:
+        kwargs_list = [base_parameters]
+        if mode == 'series':
+            kwargs_list = kwargs_list * length
+    else:
+        names = parameters_to_vary.keys()
+        grid_kwargs = [dict(list(zip(names, values))) for values in itertool(*parameters_to_vary.values())]
+        kwargs_list = [update_and_return(base_parameters, dic) for dic in grid_kwargs]
+    if not model_parameters_to_vary:
+        model_kwargs_list = [base_model_parameters]
+        if mode == 'series':
+            model_kwargs_list = model_kwargs_list * length
+    else:
+        model_names = model_parameters_to_vary.keys()
+        model_grid_kwargs = [dict(list(zip(model_names, values))) for values in
+                             itertool(*model_parameters_to_vary.values())]
+        model_kwargs_list = [update_and_return(base_model_parameters, dic) for dic in model_grid_kwargs]
+    result = []
+    for i, (params, model_params) in enumerate(itertool(kwargs_list, model_kwargs_list)):
+        all_params = params.copy()
+        all_params['model_kwargs'] = model_params
+        all_params['comet_tags'].append(mode)
+        all_params['experiment_name'] = f'{mode}_{all_params["experiment_name"]}__{i + 1}'
+        result.append(all_params)
+    return result
