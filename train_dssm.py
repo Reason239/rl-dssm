@@ -146,10 +146,10 @@ def train_dssm(model, experiment_name, dataset_name='int_1000', evaluate_dataset
                 if key != 'z_inds_count':
                     comet_experiment.log_metric(f'{mode}_{key}', value)
             comet_experiment.log_metric('dssm_scale', torch.exp(model.scale).item())
-        if (isinstance(model, DSSMEmbed) or isinstance(model, DSSMReverse)) and do_quantize:
-            z_inds_count = results['z_inds_count']
-            z_inds_count = z_inds_count / z_inds_count.sum()
-            comet_experiment.log_text('Counts: ' + ' '.join(f'{num:.1%}' for num in z_inds_count))
+            if (isinstance(model, DSSMEmbed) or isinstance(model, DSSMReverse)) and do_quantize:
+                z_inds_count = results['z_inds_count']
+                z_inds_count = z_inds_count / z_inds_count.sum()
+                comet_experiment.log_text('Counts: ' + ' '.join(f'{num:.1%}' for num in z_inds_count))
 
         if do_eval:
             # Validate
@@ -161,14 +161,14 @@ def train_dssm(model, experiment_name, dataset_name='int_1000', evaluate_dataset
                 for key, value in results.items():
                     if key != 'z_inds_count':
                         comet_experiment.log_metric(f'{mode}_{key}', value)
-            # Log embedding distance matrix
-            if isinstance(model, DSSMEmbed) or isinstance(model, DSSMReverse):
-                z_vectors = model.z_vectors_norm if isinstance(model, DSSMEmbed) else model.get_z_vectors()
-                z_vectors = z_vectors.detach()
-                z_vectors_batch = z_vectors.unsqueeze(0)
-                embed_dist_matr = torch.cdist(z_vectors_batch, z_vectors_batch).squeeze().cpu().numpy()
-                np.fill_diagonal(embed_dist_matr, torch.sqrt((z_vectors ** 2).sum(axis=1)).cpu().numpy())
-                comet_experiment.log_confusion_matrix(matrix=embed_dist_matr, title='Embeddings distance matrix')
+                # Log embedding distance matrix
+                if isinstance(model, DSSMEmbed) or isinstance(model, DSSMReverse):
+                    z_vectors = model.z_vectors_norm if isinstance(model, DSSMEmbed) else model.get_z_vectors()
+                    z_vectors = z_vectors.detach()
+                    z_vectors_batch = z_vectors.unsqueeze(0)
+                    embed_dist_matr = torch.cdist(z_vectors_batch, z_vectors_batch).squeeze().cpu().numpy()
+                    np.fill_diagonal(embed_dist_matr, torch.sqrt((z_vectors ** 2).sum(axis=1)).cpu().numpy())
+                    comet_experiment.log_confusion_matrix(matrix=embed_dist_matr, title='Embeddings distance matrix')
             test_accs.append(results['accuracy'])
 
             # Evaluate

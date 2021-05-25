@@ -162,7 +162,6 @@ class DSSMEmbed(nn.Module):
             z_matrix = embed2
 
         # calculate inner products (Gram matrix)
-        gram = torch.matmul(embed1, z_matrix.T)
         inner_product_matrix = calculate_inner_product_matrix(embed1, z_matrix, downscale_factor)
 
         # apply (positive) temperature scaling
@@ -193,7 +192,7 @@ class DSSMEmbed(nn.Module):
             z_matrix_from_embed = embed2 + (z_matrix - embed2).detach()
 
             # calculate inner products (Gram matrix)
-            inner_product_matrix_from_embed = calculate_inner_product_matrix(embed1, z_matrix_from_embed.T,
+            inner_product_matrix_from_embed = calculate_inner_product_matrix(embed1, z_matrix_from_embed,
                                                                              downscale_factor)
 
             # apply (positive) temperature scaling
@@ -204,7 +203,7 @@ class DSSMEmbed(nn.Module):
 
             if self.dssm_z_loss_coef is not None:
                 # Here gradients will flow to z_vectors
-                inner_product_matrix_from_z = calculate_inner_product_matrix(embed1, z_matrix.T, downscale_factor)
+                inner_product_matrix_from_z = calculate_inner_product_matrix(embed1, z_matrix, downscale_factor)
                 output_from_z = torch.exp(self.scale) * inner_product_matrix_from_z
                 dssm_loss_from_z = criterion(output_from_z, target)
                 total_loss += dssm_loss_from_z * self.dssm_z_loss_coef
@@ -410,7 +409,7 @@ class DSSMReverse(nn.Module):
             s_out_from_embed = self.fc(s_intermediate + diff_quant_from_embed)
 
             # calculate inner products (Gram matrix)
-            inner_product_matrix_from_embed = calculate_inner_product_matrix(s_out_from_embed, s_prime_out.T,
+            inner_product_matrix_from_embed = calculate_inner_product_matrix(s_out_from_embed, s_prime_out,
                                                                              downscale_factor)
 
             # apply (positive) temperature scaling
@@ -422,7 +421,7 @@ class DSSMReverse(nn.Module):
             if self.dssm_z_loss_coef is not None:
                 # Here gradients will flow to z_vectors
                 s_out_from_z = self.fc(s_intermediate + diff_quant)
-                inner_product_matrix_from_z = calculate_inner_product_matrix(s_out_from_z, s_prime_out.T,
+                inner_product_matrix_from_z = calculate_inner_product_matrix(s_out_from_z, s_prime_out,
                                                                              downscale_factor)
                 output_from_z = torch.exp(self.scale) * inner_product_matrix_from_z
                 dssm_loss_from_z = criterion(output_from_z, target)
