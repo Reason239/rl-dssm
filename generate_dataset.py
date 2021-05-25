@@ -81,7 +81,8 @@ def make_env_index_dataset(data_path, n_envs_train, n_envs_test, eps, dtype, sav
         pickle.dump(idx_test, f)
 
 
-def make_validation_index_dataset(data_path, n_envs, n_negatives, expert_eps, fake_eps, dtype):
+def make_evaluation_index_dataset(data_path, n_envs, n_negatives, expert_eps, fake_eps, dtype, start_seed=10000,
+                                  filename_suffix='evaluate'):
     if dtype == 'bool':
         np_dtype = np.bool_
     elif dtype == 'int':
@@ -91,7 +92,7 @@ def make_validation_index_dataset(data_path, n_envs, n_negatives, expert_eps, fa
     dataset = []
     state_data = []
     button_idxs_used = set()
-    seed = 10000
+    seed = start_seed
     cur_num = 0
     idx = {}
     for ind_env in tqdm(range(n_envs)):
@@ -141,11 +142,11 @@ def make_validation_index_dataset(data_path, n_envs, n_negatives, expert_eps, fa
     # save the data
     path = pathlib.Path(data_path)
     path.mkdir(parents=True, exist_ok=True)
-    with open(path / 'evaluate.pkl', 'wb') as f:
+    with open(path / f'{filename_suffix}.pkl', 'wb') as f:
         pickle.dump(dataset, f)
-    with open(path / 'state_data_evaluate.pkl', 'wb') as f:
+    with open(path / f'state_data_{filename_suffix}.pkl', 'wb') as f:
         pickle.dump(state_data, f)
-    with open(path / 'idx_evaluate.pkl', 'wb') as f:
+    with open(path / f'idx_{filename_suffix}.pkl', 'wb') as f:
         pickle.dump(idx, f)
 
 
@@ -202,7 +203,7 @@ def make_states_dict_dataset(data_path, n_envs_train, n_envs_test, n_runs_per_en
 if __name__ == '__main__':
     np.random.seed(42)
     dtype = 'int'
-    data_path = f'datasets/evaluate_{dtype}_1024_n4/'
+    data_path = f'datasets/synth_{dtype}_20480_n4/'
     n_envs_train = 1000
     n_envs_test = 200
     min_states_interval = 2
@@ -213,8 +214,11 @@ if __name__ == '__main__':
     # make_env_index_dataset(data_path, n_envs_train, n_envs_test, eps, 'int', save_state_data=True,
     #                        min_states_interval=min_states_interval, max_states_interval=max_states_interval)
     #
-    n_envs = 1024
+    n_envs = 1024 * 4
     n_negatives = 4
     expert_eps = 0.05
     fake_eps = 1.
-    make_validation_index_dataset(data_path, n_envs, n_negatives, expert_eps, fake_eps, dtype)
+    start_seed = 40000
+    filename_suffix = 'test'
+    make_evaluation_index_dataset(data_path, n_envs, n_negatives, expert_eps, fake_eps, dtype, start_seed,
+                                  filename_suffix)

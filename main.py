@@ -4,14 +4,18 @@ from train_dssm import train_dssm
 from dssm import DSSM, DSSMEmbed, DSSMReverse
 from utils import get_parameters_list
 
-dataset_name = 'all_1000'
+# dataset_name = 'all_1000'
+dataset_name = 'synth_bool_20480_n4'
+train_on_synthetic_dataset = 'synth' in dataset_name
 evaluate_dataset_name = 'evaluate_bool_1024_n4'
 n_negatives = 4
-evaluate_batch_size = 1
-experiment_name = 'eval_reg_tr132'
+evaluate_batch_size = 64
+experiment_name = 'synth_reg'
 model_type = 'DSSM'
 use_comet = True
 comet_tags = [model_type]
+if train_on_synthetic_dataset:
+    comet_tags += ['synth']
 comet_disabled = False  # For debugging
 save = True
 n_trajectories = 1
@@ -64,7 +68,8 @@ base_parameters = dict(model=model, experiment_name=experiment_name, evaluate_da
                        n_negatives=n_negatives, evaluate_batch_size=evaluate_batch_size, dataset_name=dataset_name,
                        use_comet=use_comet, comet_tags=comet_tags, comet_disabled=comet_disabled, save=save,
                        n_trajectories=n_trajectories, pairs_per_trajectory=pairs_per_trajectory, n_epochs=n_epochs,
-                       patience_ratio=patience_ratio, device=device, do_eval=do_eval, do_quantize=do_quantize)
+                       patience_ratio=patience_ratio, device=device, do_eval=do_eval, do_quantize=do_quantize,
+                       train_on_synthetic_dataset=train_on_synthetic_dataset)
 parameters_to_vary = {}
 model_parameters_to_vary = {'embed_conv_size': [None, 3],
                             'dssm_z_loss_coef': [None, 1.],

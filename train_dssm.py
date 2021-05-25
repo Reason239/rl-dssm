@@ -14,7 +14,7 @@ import pathlib
 from collections import defaultdict
 
 
-def run_model(model, optimizer, batches, device, criterion, target, mode, do_quantize):
+def run_model(model, optimizer, batches, device, criterion, target, mode, do_quantize, downscale_factor=1):
     assert mode in ['train', 'validate', 'evaluate']
     losses = defaultdict(float)
     n_correct = 0
@@ -35,7 +35,7 @@ def run_model(model, optimizer, batches, device, criterion, target, mode, do_qua
             optimizer.zero_grad()
 
         # forward + backward + optimize
-        results = model.forward_and_loss((s, s_prime), criterion, target)
+        results = model.forward_and_loss((s, s_prime), criterion, target, downscale_factor)
         output = results['output']
         loss = results['total_loss']
         if mode == 'train':
@@ -68,7 +68,7 @@ def run_model(model, optimizer, batches, device, criterion, target, mode, do_qua
 def train_dssm(model, experiment_name, dataset_name='int_1000', evaluate_dataset_name='evaluate_1024_n4', n_negatives=4,
                evaluate_batch_size=64, use_comet=False, comet_tags=None, comet_disabled=False, save=False,
                n_trajectories=16, pairs_per_trajectory=4, n_epochs=60, patience_ratio=1, device='cpu', do_eval=True,
-               do_quantize=True, model_kwargs=None):
+               do_quantize=True, model_kwargs=None, train_on_synthetic_dataset=False):
     np.random.seed(42)
     dataset_path = f'datasets/{dataset_name}/'
     evaluate_dataset_path = f'datasets/{evaluate_dataset_name}/'
@@ -101,17 +101,29 @@ def train_dssm(model, experiment_name, dataset_name='int_1000', evaluate_dataset
     #
     # train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
     # test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
-    train_batches = BatchIterator(dataset_path + 'train.pkl', dataset_path + 'idx_train.pkl',
-                                  n_trajectories, pairs_per_trajectory, None, dtype_for_torch)
-    test_batches = BatchIterator(dataset_path + 'test.pkl', dataset_path + 'idx_test.pkl',
-                                 n_trajectories, pairs_per_trajectory, None, dtype_for_torch)
+    if not train_on_synthetic_dataset:
+        train_batches = BatchIterator(dataset_path + 'train.pkl', dataset_path + 'idx_train.pkl',
+                                      n_trajectories, pairs_per_trajectory, None, dtype_for_torch)
+        test_batches = BatchIterator(dataset_path + 'test.pkl', dataset_path + 'idx_test.pkl',
+                                     n_trajectories, pairs_per_trajectory, None, dtype_for_torch)
+    else:
+        train_batches = ValidationBatchIterator(dataset_path + 'train.pkl', dataset_path + 'idx_train.pkl',
+                                                n_negatives, evaluate_batch_size, dtype_for_torch)
+        test_batches = ValidationBatchIterator(dataset_path + 'test.pkl', dataset_path + 'idx_test.pkl',
+                                               n_negatives, evaluate_batch_size, dtype_for_torch)
     evaluate_batches = ValidationBatchIterator(evaluate_dataset_path + 'evaluate.pkl',
                                                evaluate_dataset_path + 'idx_evaluate.pkl', n_negatives,
                                                evaluate_batch_size, dtype_for_torch)
 
     criterion = nn.CrossEntropyLoss()
-    target = torch.arange(0, batch_size).to(device)
-    evaluate_target = (torch.arange(0, evaluate_batch_size) * (n_negatives + 1)).to(device)
+    downscale_factor = n_negatives + 1
+    evaluate_target = torch.zeros(evaluate_batch_size, dtype=torch.long).to(device)
+    if not train_on_synthetic_dataset:
+        target = torch.arange(0, batch_size).to(device)
+        train_downscale_factor = 1
+    else:
+        target = evaluate_target
+        train_downscale_factor = downscale_factor
 
     optimizer = torch.optim.Adam(model.parameters())
 
@@ -126,7 +138,8 @@ def train_dssm(model, experiment_name, dataset_name='int_1000', evaluate_dataset
     for epoch in tqdm_range:
         # train
         mode = 'train'
-        results = run_model(model, optimizer, train_batches, device, criterion, target, mode, do_quantize)
+        results = run_model(model, optimizer, train_batches, device, criterion, target, mode, do_quantize,
+                            train_downscale_factor)
         # Log all metrics
         if use_comet:
             for key, value in results.items():
@@ -141,7 +154,8 @@ def train_dssm(model, experiment_name, dataset_name='int_1000', evaluate_dataset
         if do_eval:
             # Validate
             mode = 'validate'
-            results = run_model(model, optimizer, test_batches, device, criterion, target, mode, do_quantize)
+            results = run_model(model, optimizer, test_batches, device, criterion, target, mode, do_quantize,
+                                train_downscale_factor)
             # Log all metrics
             if use_comet:
                 for key, value in results.items():
@@ -160,7 +174,7 @@ def train_dssm(model, experiment_name, dataset_name='int_1000', evaluate_dataset
             # Evaluate
             mode = 'evaluate'
             results = run_model(model, optimizer, evaluate_batches, device, criterion, evaluate_target, mode,
-                                do_quantize)
+                                do_quantize, downscale_factor)
             # Log all metrics
             if use_comet:
                 for key, value in results.items():
@@ -197,7 +211,7 @@ def train_dssm(model, experiment_name, dataset_name='int_1000', evaluate_dataset
             with open(experiment_path / 'info.json', 'w') as f:
                 json.dump(info.update(model_kwargs), f, indent=4)
 
-            with open(experiment_path / 'model_kwargs.csv', 'wb') as f:
+            with open(experiment_path / 'model_kwargs.pkl', 'wb') as f:
                 pickle.dump(model_kwargs, f)
 
             with open(experiment_path_base + 'summary.csv', 'a') as f:

@@ -275,3 +275,35 @@ def get_parameters_list(base_parameters, parameters_to_vary, base_model_paramete
         all_params['experiment_name'] = f'{mode}_{all_params["experiment_name"]}__{i + 1}'
         result.append(all_params)
     return result
+
+def analyze_eval_dataset_buton_presses(evaluation_dataset_state_data_path):
+    with open(evaluation_dataset_state_data_path, 'rb') as f:
+        state_data = pickle.load(f)
+    print('Len: ', len(state_data))
+
+    positive_trans = np.zeros(4)
+    negative_trans = np.zeros(4)
+    matr = np.zeros((4, 4))
+    correct = 0
+    for i in range(0, len(state_data), 5):
+        but_s = state_data[i][0][-1]
+        but_s_prime = state_data[i][1][-1]
+        delta_pos = but_s_prime - but_s
+        positive_trans[delta_pos] += 1
+        pressed_pos = int(delta_pos > 0)
+        pressed_neg = 0
+        for j in range(4):
+            but_s_prime_neg = state_data[i + 1 + j][1][-1]
+            delta_neg = but_s_prime_neg - but_s
+            pressed_neg += delta_neg > 0
+            negative_trans[delta_neg] += 1
+            matr[delta_pos, delta_neg] += 1
+        if pressed_pos + pressed_neg > 0:
+            correct += pressed_pos / (pressed_pos + pressed_neg)
+        else:
+            correct += 1/5
+
+    print('Positive button presses: ', positive_trans / positive_trans.sum())
+    print('Negative button presses: ', negative_trans / negative_trans.sum())
+    print('Matrix of this stuff:\n', matr / matr.sum(axis=1, keepdims=True))
+    print('Accuracy of "pick random with a pressed button": ', correct / (len(state_data) // 5))

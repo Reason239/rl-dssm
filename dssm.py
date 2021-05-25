@@ -1,11 +1,16 @@
 import torch
 from torch import nn
 
-# def inner_product_matrix(vectors1, vectors2, downscale_factor=1):
-#     if downscale_factor == 1:
-#         return torch.matmul(vectors1, torch.transpose(vectors2, 0, 1))
-#     assert len(vectors1) % downscale_factor == 0
-#     vectors1 = vectors1[torch.arange(0, len(vectors1), downscale_factor)].view()
+
+def calculate_inner_product_matrix(vectors1, vectors2, downscale_factor=1):
+    if downscale_factor == 1:
+        return torch.matmul(vectors1, torch.transpose(vectors2, 0, 1))
+    assert vectors1.shape[0] % downscale_factor == 0
+    bs = vectors1.shape[0] // downscale_factor
+    embedding_size = vectors1.shape[1]
+    vectors1 = vectors1[torch.arange(0, bs * downscale_factor, downscale_factor)].view(bs, 1, embedding_size)
+    vectors2 = torch.transpose(vectors2.view(bs, downscale_factor, embedding_size), 1, 2)
+    return torch.bmm(vectors1, vectors2).view(bs, downscale_factor)
 
 
 class DSSM(nn.Module):
@@ -46,7 +51,7 @@ class DSSM(nn.Module):
         embed2 = self.phi2_norm(self.phi2_linear(x2))
         return embed2
 
-    def forward(self, x):
+    def forward(self, x, downscale_factor=1):
         s, s_prime = x
         # s, s_prime = embed(s), embed(s_prime)
 
@@ -55,19 +60,14 @@ class DSSM(nn.Module):
         # TODO what if just s_prime. Will easily see the button configuration
         embed2 = self.phi2(s_prime - s)
 
-        # calculate inner products (Gramm matrix)
-        gramm = torch.matmul(embed1, torch.transpose(embed2, 0, 1))
-        output = self.scale * gramm
+        # calculate inner products (usually it's Gramm matrix)
+        inner_product_matrix = calculate_inner_product_matrix(embed1, embed2, downscale_factor)
+        output = self.scale * inner_product_matrix
 
         return output
 
-    def forward_and_loss(self, x, criterion, target):
-        output = self.forward(x)
-        if len(output) != len(target):
-            bs = len(output)
-            ts = len(target)
-            assert bs % ts == 0
-            output = output[torch.arange(0, bs, bs // ts)]
+    def forward_and_loss(self, x, criterion, target, downscale_factor=1):
+        output = self.forward(x, downscale_factor)
         total_loss = criterion(output, target)
         results = dict(output=output, total_loss=total_loss, dssm_loss=total_loss)
         return results
@@ -145,7 +145,7 @@ class DSSMEmbed(nn.Module):
         embed2 = normalized(x2, self.eps)
         return embed2
 
-    def forward(self, x):
+    def forward(self, x, downscale_factor=1):
         s, s_prime = x
         s_embed = self.embed(s)
         s_prime_embed = self.embed(s_prime)
@@ -163,13 +163,14 @@ class DSSMEmbed(nn.Module):
 
         # calculate inner products (Gram matrix)
         gram = torch.matmul(embed1, z_matrix.T)
+        inner_product_matrix = calculate_inner_product_matrix(embed1, z_matrix, downscale_factor)
 
         # apply (positive) temperature scaling
-        output = torch.exp(self.scale) * gram
+        output = torch.exp(self.scale) * inner_product_matrix
 
         return output
 
-    def forward_and_loss(self, x, criterion, target):
+    def forward_and_loss(self, x, criterion, target, downscale_factor=1):
         if self.do_quantize:
             s, s_prime = x
             s_embed = self.embed(s)
@@ -177,13 +178,6 @@ class DSSMEmbed(nn.Module):
 
             embed1 = self.phi1(s_embed)
             embed2 = self.phi2(s_prime_embed - s_embed)
-
-            # If s are repeated
-            if len(embed1) != len(target):
-                bs = len(embed1)
-                ts = len(target)
-                assert bs % ts == 0, f'{bs} {ts}'
-                embed1 = embed1[torch.arange(0, bs, bs // ts)]
 
             # quantize
             z_vectors_norm = self.z_vectors_norm
@@ -199,18 +193,19 @@ class DSSMEmbed(nn.Module):
             z_matrix_from_embed = embed2 + (z_matrix - embed2).detach()
 
             # calculate inner products (Gram matrix)
-            gram_from_embed = torch.matmul(embed1, z_matrix_from_embed.T)
+            inner_product_matrix_from_embed = calculate_inner_product_matrix(embed1, z_matrix_from_embed.T,
+                                                                             downscale_factor)
 
             # apply (positive) temperature scaling
-            output_from_embed = torch.exp(self.scale) * gram_from_embed
+            output_from_embed = torch.exp(self.scale) * inner_product_matrix_from_embed
 
             dssm_loss_from_embed = criterion(output_from_embed, target)
             total_loss += dssm_loss_from_embed * self.dssm_embed_loss_coef
 
             if self.dssm_z_loss_coef is not None:
                 # Here gradients will flow to z_vectors
-                gram_from_z = torch.matmul(embed1, z_matrix.T)
-                output_from_z = torch.exp(self.scale) * gram_from_z
+                inner_product_matrix_from_z = calculate_inner_product_matrix(embed1, z_matrix.T, downscale_factor)
+                output_from_z = torch.exp(self.scale) * inner_product_matrix_from_z
                 dssm_loss_from_z = criterion(output_from_z, target)
                 total_loss += dssm_loss_from_z * self.dssm_z_loss_coef
 
@@ -221,12 +216,7 @@ class DSSMEmbed(nn.Module):
 
             return results
         else:
-            output = self.forward(x)
-            if len(output) != len(target):
-                bs = len(output)
-                ts = len(target)
-                assert bs % ts == 0
-                output = output[torch.arange(0, bs, bs // ts)]
+            output = self.forward(x, downscale_factor)
             total_loss = criterion(output, target)
             results = dict(output=output, total_loss=total_loss, encoder_latent_loss=torch.Tensor([0]),
                            dssm_loss=total_loss, z_inds_count=torch.Tensor([1]))
@@ -370,7 +360,7 @@ class DSSMReverse(nn.Module):
         x = normalized(x, self.eps)
         return x
 
-    def forward(self, x):
+    def forward(self, x, downscale_factor):
         s, s_prime = x
         s_embed = self.embed(s)
         s_prime_embed = self.embed(s_prime)
@@ -388,14 +378,14 @@ class DSSMReverse(nn.Module):
         s_out = self.fc(s_intermediate + diff_quant)
 
         # calculate inner products (Gram matrix)
-        gram = torch.matmul(s_out, s_prime_out)
+        inner_product_matrix = calculate_inner_product_matrix(s_out, s_prime_out, downscale_factor)
 
         # apply (positive) temperature scaling
-        output = torch.exp(self.scale) * gram
+        output = torch.exp(self.scale) * inner_product_matrix
 
         return output
 
-    def forward_and_loss(self, x, criterion, target):
+    def forward_and_loss(self, x, criterion, target, downscale_factor=1):
         if self.do_quantize:
             s, s_prime = x
             s_embed = self.embed(s)
@@ -419,18 +409,12 @@ class DSSMReverse(nn.Module):
             diff_quant_from_embed = diff_intermediate + (diff_quant - diff_intermediate).detach()
             s_out_from_embed = self.fc(s_intermediate + diff_quant_from_embed)
 
-            # If s are repeated
-            if len(s_out_from_embed) != len(target):
-                bs = len(s_out_from_embed)
-                ts = len(target)
-                assert bs % ts == 0
-                s_out_from_embed = s_out_from_embed[torch.arange(0, bs, bs // ts)]
-
             # calculate inner products (Gram matrix)
-            gram_from_embed = torch.matmul(s_out_from_embed, s_prime_out.T)
+            inner_product_matrix_from_embed = calculate_inner_product_matrix(s_out_from_embed, s_prime_out.T,
+                                                                             downscale_factor)
 
             # apply (positive) temperature scaling
-            output_from_embed = torch.exp(self.scale) * gram_from_embed
+            output_from_embed = torch.exp(self.scale) * inner_product_matrix_from_embed
 
             dssm_loss_from_embed = criterion(output_from_embed, target)
             total_loss += dssm_loss_from_embed * self.dssm_embed_loss_coef
@@ -438,10 +422,9 @@ class DSSMReverse(nn.Module):
             if self.dssm_z_loss_coef is not None:
                 # Here gradients will flow to z_vectors
                 s_out_from_z = self.fc(s_intermediate + diff_quant)
-                if len(s_out_from_z) != len(target):
-                    s_out_from_z = s_out_from_z[torch.arange(0, bs, bs // ts)]
-                gram_from_z = torch.matmul(s_out_from_z, s_prime_out.T)
-                output_from_z = torch.exp(self.scale) * gram_from_z
+                inner_product_matrix_from_z = calculate_inner_product_matrix(s_out_from_z, s_prime_out.T,
+                                                                             downscale_factor)
+                output_from_z = torch.exp(self.scale) * inner_product_matrix_from_z
                 dssm_loss_from_z = criterion(output_from_z, target)
                 total_loss += dssm_loss_from_z * self.dssm_z_loss_coef
 
@@ -453,13 +436,7 @@ class DSSMReverse(nn.Module):
 
             return results
         else:
-            output = self.forward(x)
-            # If s are repeated
-            if len(output) != len(target):
-                bs = len(output)
-                ts = len(target)
-                assert bs % ts == 0
-                output = output[torch.arange(0, bs, bs // ts)]
+            output = self.forward(x, downscale_factor)
             total_loss = criterion(output, target)
             results = dict(output=output, total_loss=total_loss, dssm_loss=total_loss)
             return results
