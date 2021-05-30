@@ -144,8 +144,8 @@ def train_dssm(model, experiment_name, dataset_name='int_1000', evaluate_dataset
         if use_comet:
             for key, value in results.items():
                 if key != 'z_inds_count':
-                    comet_experiment.log_metric(f'{mode}_{key}', value)
-            comet_experiment.log_metric('dssm_scale', torch.exp(model.scale).item())
+                    comet_experiment.log_metric(f'{mode}_{key}', value, epoch=epoch)
+            comet_experiment.log_metric('dssm_scale', torch.exp(model.scale).item(), epoch=epoch)
             if (isinstance(model, DSSMEmbed) or isinstance(model, DSSMReverse)) and do_quantize:
                 z_inds_count = results['z_inds_count']
                 z_inds_count = z_inds_count / z_inds_count.sum()
@@ -160,7 +160,7 @@ def train_dssm(model, experiment_name, dataset_name='int_1000', evaluate_dataset
             if use_comet:
                 for key, value in results.items():
                     if key != 'z_inds_count':
-                        comet_experiment.log_metric(f'{mode}_{key}', value)
+                        comet_experiment.log_metric(f'{mode}_{key}', value, epoch=epoch)
                 # Log embedding distance matrix
                 if isinstance(model, DSSMEmbed) or isinstance(model, DSSMReverse):
                     z_vectors = model.z_vectors_norm if isinstance(model, DSSMEmbed) else model.get_z_vectors()
@@ -179,7 +179,7 @@ def train_dssm(model, experiment_name, dataset_name='int_1000', evaluate_dataset
             if use_comet:
                 for key, value in results.items():
                     if key != 'z_inds_count':
-                        comet_experiment.log_metric(f'{mode}_{key}', value)
+                        comet_experiment.log_metric(f'{mode}_{key}', value, epoch=epoch)
 
             # save model (best)
             if test_accs[-1] > best_test_acc:

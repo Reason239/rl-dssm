@@ -17,8 +17,8 @@ from scipy.stats import entropy
 
 dataset_path = pathlib.Path('datasets/all_100')
 experiment_path_base = pathlib.Path('experiments')
-experiment_name = 'reg_test'
-clustering_name = 'clustering_new'
+experiment_name = 'reg'
+clustering_name = 'clustering_10'
 save_path = experiment_path_base / experiment_name / clustering_name
 save_path.mkdir(parents=True, exist_ok=True)
 batch_size = 256
@@ -45,7 +45,6 @@ else:
     print('Clustering')
 
     model = DSSM(in_channels=7, height=5, width=5, embed_size=embed_size)
-    # model = DSSMEmbed(n_z=50)
     model.eval()
     model.load_state_dict(torch.load(experiment_path_base / experiment_name / 'best_model.pth'))
 
@@ -145,5 +144,12 @@ def compute_statistics(dtype='bool', n_buttons=3, grid_size=(5, 5)):
         plt.clf()
         plt.close(fig)
 
-
-compute_statistics()
+if __name__ == '__main__':
+    # make_plots()
+    # compute_statistics()
+    print(x_raw.shape)
+    x0 = x_raw[0]
+    print((x0 ** 2).sum())
+    x0 = x_raw[1]
+    print((x0 ** 2).sum())
+    print((x_raw[:40] ** 2).sum(axis=1))

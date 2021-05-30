@@ -4,13 +4,13 @@ from train_dssm import train_dssm
 from dssm import DSSM, DSSMEmbed, DSSMReverse
 from utils import get_parameters_list
 
-# dataset_name = 'all_1000'
-dataset_name = 'synth_bool_20480_n4'
+dataset_name = 'all_1000'
+# dataset_name = 'synth_int_20480_n4'
 train_on_synthetic_dataset = 'synth' in dataset_name
 evaluate_dataset_name = 'evaluate_bool_1024_n4'
 n_negatives = 4
 evaluate_batch_size = 64
-experiment_name = 'synth_reg'
+experiment_name = 'reg'
 model_type = 'DSSM'
 use_comet = True
 comet_tags = [model_type]
@@ -18,8 +18,8 @@ if train_on_synthetic_dataset:
     comet_tags += ['synth']
 comet_disabled = False  # For debugging
 save = True
-n_trajectories = 1
-pairs_per_trajectory = 32
+n_trajectories = 16
+pairs_per_trajectory = 4
 n_epochs = 60
 patience_ratio = 1.
 embed_size = 64
@@ -34,7 +34,7 @@ fc_sizes = [embed_size, embed_size]
 do_normalize = False
 # DSSMEmbed and DSSMReverse
 state_embed_size = 3
-n_z = 10
+n_z = 50
 commitment_cost = 0.25  # strength of encoder penalty for distance from quantized embeds
 dssm_embed_loss_coef = 1.
 dssm_z_loss_coef = None
@@ -56,7 +56,8 @@ elif model_type == 'DSSMEmbed':
 elif model_type == 'DSSMReverse':
     base_model_parameters = dict(dict_size=14, height=5, width=5, embed_size=embed_size,
                                  state_embed_size=state_embed_size,
-                                 embed_conv_channels=None, phi_conv_channels=phi_conv_channels, fc_sizes=fc_sizes,
+                                 embed_conv_channels=embed_conv_channels, phi_conv_channels=phi_conv_channels,
+                                 fc_sizes=fc_sizes,
                                  do_normalize=do_normalize, n_z=n_z, eps=dssm_eps, commitment_cost=commitment_cost,
                                  distance_loss_coef=distance_loss_coef, dssm_embed_loss_coef=dssm_embed_loss_coef,
                                  dssm_z_loss_coef=dssm_z_loss_coef, do_quantize=do_quantize)

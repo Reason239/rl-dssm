@@ -25,7 +25,6 @@ class DSSM(nn.Module):
         self.phi1_conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, padding=1)
         # batch * height * width * 32 -> flatten
         self.phi1_linear = nn.Linear(height * width * 32, embed_size)
-        # TODO try just norm (may be eps=1)
         self.phi1_norm = nn.LayerNorm(normalized_shape=embed_size)
 
         # phi_2 - same architecture as phi_1
