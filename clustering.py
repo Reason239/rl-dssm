@@ -136,7 +136,7 @@ def compute_statistics(dtype='bool', n_buttons=3, grid_size=(5, 5)):
         # ax2.colorbar()
 
         ax3 = fig.add_subplot(gs[2, 1])
-        ax3.set_title('Pos in s')
+        ax3.set_title('Pos in s\'')
         ax3.imshow(matrix_pos_s_prime, cmap='Blues')
         # ax3.colorbar()
         plt.savefig(fname=save_path / f'heat_{ind_cluster}.png')
@@ -146,10 +146,4 @@ def compute_statistics(dtype='bool', n_buttons=3, grid_size=(5, 5)):
 
 if __name__ == '__main__':
     # make_plots()
-    # compute_statistics()
-    print(x_raw.shape)
-    x0 = x_raw[0]
-    print((x0 ** 2).sum())
-    x0 = x_raw[1]
-    print((x0 ** 2).sum())
-    print((x_raw[:40] ** 2).sum(axis=1))
+    compute_statistics()

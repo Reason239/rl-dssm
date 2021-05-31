@@ -4,14 +4,14 @@ from train_dssm import train_dssm
 from dssm import DSSM, DSSMEmbed, DSSMReverse
 from utils import get_parameters_list
 
-dataset_name = 'all_1000'
-# dataset_name = 'synth_int_20480_n4'
+# dataset_name = 'int_1000'
+dataset_name = 'synth_int_20480_n4'
 train_on_synthetic_dataset = 'synth' in dataset_name
-evaluate_dataset_name = 'evaluate_bool_1024_n4'
+evaluate_dataset_name = 'evaluate_int_1024_n4'
 n_negatives = 4
 evaluate_batch_size = 64
-experiment_name = 'reg'
-model_type = 'DSSM'
+experiment_name = 'synth_quant_q10_'
+model_type = 'DSSMEmbed'
 use_comet = True
 comet_tags = [model_type]
 if train_on_synthetic_dataset:
@@ -34,7 +34,7 @@ fc_sizes = [embed_size, embed_size]
 do_normalize = False
 # DSSMEmbed and DSSMReverse
 state_embed_size = 3
-n_z = 50
+n_z = 10
 commitment_cost = 0.25  # strength of encoder penalty for distance from quantized embeds
 dssm_embed_loss_coef = 1.
 dssm_z_loss_coef = None

@@ -14,14 +14,14 @@ from matplotlib.gridspec import GridSpec
 experiment_path_base = pathlib.Path('experiments')
 dataset_path = pathlib.Path('datasets/int_1000')
 part = 'train'
-experiment_name = 'quant_q50_dist01_c025'
-n_z = 50
+experiment_name = 'quant_q10'
+n_z = 10
 show_closest = False
 save_local = True
-save_comet = True
+save_comet = False
 comet_num = -1
 comet_exp_key = None
-batch_size = 256
+batch_size = 64
 embed_size = 64
 n_cols = 6
 n_rows = 10
@@ -49,6 +49,8 @@ if save_local:
 if save_comet:
     comet_experiment = get_old_experiment(experiment_name, comet_num, comet_exp_key)
     print(f'Connected to expirement with key {comet_experiment.get_key()}')
+else:
+    comet_experiment = None
 
 closest = [[] for _ in range(n_z)]
 everything = [[] for _ in range(n_z)]
@@ -92,39 +94,39 @@ for (s, s_prime), (s_data, s_prime_data) in tqdm(dataloader):
 # print(counts_raw)
 # print(counts_filtered)
 
-# print('Logging pictures...')
-# closest_sorted = [sorted(arr, key=lambda x: x[1]) for arr in closest]
-# for z_ind in tqdm(range(n_z)):
-#     all_pairs = closest_sorted[z_ind]
-#     n_display = min(n_rows * n_cols, len(all_pairs))
-#     if show_closest:
-#         pairs_to_show = all_pairs[:n_display]
-#     else:
-#         pairs_to_show = [all_pairs[i] for i in
-#                          np.linspace(0, len(all_pairs), num=n_display, endpoint=False, dtype=int)]
-#     fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=figsize)
-#     for row in axes:
-#         for ax in row:
-#             ax.set_axis_off()
-#     for i, ((s_data, s_prime_data), distance, embed_hash) in enumerate(pairs_to_show):
-#         ax = axes[i % n_rows, i // n_rows]
-#         grid_s = grid_from_state_data(*s_data)
-#         grid_s_prime = grid_from_state_data(*s_prime_data)
-#         grid = join_grids(grid_s, grid_s_prime, pixels_between=pixels_between)
-#         ax.imshow(grid)
-#         ax.set_title(f'dist: {distance:.3f}, num: {hash_counts[embed_hash]}')
-#     total_elements = sum(hash_counts[obj[2]] for obj in all_pairs)
-#     fig.suptitle(f'Embedding {z_ind}. n_elements: {total_elements}, n_unique: {len(all_pairs)}')
-#     fig_name = f'embed_{z_ind:02d}'
-#     if show_closest:
-#         fig_name += 'closest'
-#     if save_local:
-#         plt.savefig(fname=save_path_base / f'{fig_name}.png')
-#     if save_comet:
-#         comet_experiment.log_figure(figure_name=fig_name, figure=plt, overwrite=True)
-#     plt.cla()
-#     plt.clf()
-#     plt.close(fig)
+print('Logging pictures...')
+closest_sorted = [sorted(arr, key=lambda x: x[1]) for arr in closest]
+for z_ind in tqdm(range(n_z)):
+    all_pairs = closest_sorted[z_ind]
+    n_display = min(n_rows * n_cols, len(all_pairs))
+    if show_closest:
+        pairs_to_show = all_pairs[:n_display]
+    else:
+        pairs_to_show = [all_pairs[i] for i in
+                         np.linspace(0, len(all_pairs), num=n_display, endpoint=False, dtype=int)]
+    fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=figsize)
+    for row in axes:
+        for ax in row:
+            ax.set_axis_off()
+    for i, ((s_data, s_prime_data), distance, embed_hash) in enumerate(pairs_to_show):
+        ax = axes[i % n_rows, i // n_rows]
+        grid_s = grid_from_state_data(*s_data)
+        grid_s_prime = grid_from_state_data(*s_prime_data)
+        grid = join_grids(grid_s, grid_s_prime, pixels_between=pixels_between)
+        ax.imshow(grid)
+        ax.set_title(f'dist: {distance:.3f}, num: {hash_counts[embed_hash]}')
+    total_elements = sum(hash_counts[obj[2]] for obj in all_pairs)
+    fig.suptitle(f'Embedding {z_ind}. n_elements: {total_elements}, n_unique: {len(all_pairs)}')
+    fig_name = f'embed_{z_ind:02d}'
+    if show_closest:
+        fig_name += 'closest'
+    if save_local:
+        plt.savefig(fname=save_path_base / f'{fig_name}.png')
+    if save_comet:
+        comet_experiment.log_figure(figure_name=fig_name, figure=plt, overwrite=True)
+    plt.cla()
+    plt.clf()
+    plt.close(fig)
 
 def create_heat_plot(z_ind, matrix_stage, matrix_pos_s, matrix_pos_s_prime, save_local, save_path_base, save_comet,
                      comet_experiment):
@@ -141,7 +143,7 @@ def create_heat_plot(z_ind, matrix_stage, matrix_pos_s, matrix_pos_s_prime, save
     # ax2.colorbar()
 
     ax3 = fig.add_subplot(gs[2, 1])
-    ax3.set_title('Pos in s')
+    ax3.set_title('Pos in s\'')
     ax3.imshow(matrix_pos_s_prime, cmap='Blues')
     # ax3.colorbar()
     fig_name = f'e_heat_{z_ind}.png'

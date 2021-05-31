@@ -276,7 +276,7 @@ def get_parameters_list(base_parameters, parameters_to_vary, base_model_paramete
         result.append(all_params)
     return result
 
-def analyze_eval_dataset_buton_presses(evaluation_dataset_state_data_path):
+def analyze_eval_dataset_button_presses(evaluation_dataset_state_data_path):
     with open(evaluation_dataset_state_data_path, 'rb') as f:
         state_data = pickle.load(f)
     print('Len: ', len(state_data))
@@ -305,5 +305,9 @@ def analyze_eval_dataset_buton_presses(evaluation_dataset_state_data_path):
 
     print('Positive button presses: ', positive_trans / positive_trans.sum())
     print('Negative button presses: ', negative_trans / negative_trans.sum())
-    print('Matrix of this stuff:\n', matr / matr.sum(axis=1, keepdims=True))
+    print('Matrix of this stuff:')
+    for row in matr / matr.sum(axis=1, keepdims=True):
+        for val in row:
+            print(f'{val:.1%}', end=' ')
+        print()
     print('Accuracy of "pick random with a pressed button": ', correct / (len(state_data) // 5))
