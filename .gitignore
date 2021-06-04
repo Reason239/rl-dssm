@@ -1,5 +1,13 @@
 inspect_embeds/
+datasets/synth_bool_20480_n4
 x_raw.pkl
+scratch.py
+gridworld_dssm/scratch.py
+gridworld_dssm/experiments/summary.csv
+gridworld_dssm/scratch.py
+scratch.py
+
+
 # Created by .ignore support plugin (hsz.mobi)
 ### Python template
 # Byte-compiled / optimized / DLL files
@@ -151,6 +159,3 @@ com_crashlytics_export_strings.xml
 crashlytics.properties
 crashlytics-build.properties
 fabric.properties
-gridworld_dssm/scratch.py
-gridworld_dssm/experiments/summary.csv
-gridworld_dssm/scratch.py
