@@ -2,7 +2,7 @@
 
 Бакалаврская дипломная работа Тыщука Кирилла на СПбГУ МКН
 
-Текст дипломной работы
+[Текст дипломной работы](https://github.com/Reason239/rl-dssm/blob/master/extra%20meterials/Thesis_v1.pdf)
 
 [Данные экспериментов на Comet.ml](https://www.comet.ml/reason239/gridworld-dssm/view/5BBniF9PhAd5KtWADLjcWCc5A)
 
@@ -12,54 +12,54 @@
 
 ### Описание файлов и папок
 
-#### datasets/
+#### [datasets/](https://github.com/Reason239/rl-dssm/tree/master/datasets)
 
 Директория, в которой хранятся сгенерированные датасеты.
 
-#### experiments/
+#### [experiments/](https://github.com/Reason239/rl-dssm/tree/master/experiments)
 
 Директория с данными экспериментов: сохранённые модели, визуализации и т. д.
 
-#### extra materials/
+#### [extra materials/](https://github.com/Reason239/rl-dssm/tree/master/extra%20meterials)
 
 Директория с дополнительными материалами: текст работы, ссылки на использованные материалы о OpenAI Gym.
 
-#### clustering.py
+#### [clustering.py](https://github.com/Reason239/rl-dssm/blob/master/clustering.py)
 
 Скрипт для визуализации свойств кластеров эмбеддингов переходов базовой модели.
 
-#### dssm.py
+#### [dssm.py](https://github.com/Reason239/rl-dssm/blob/master/dssm.py)
 
 Файл с реализацией базовой и квантизованной модели. Также содержит третью модель, находящуюся в разработке.
 
-#### generate_dataset.py
+#### [generate_dataset.py](https://github.com/Reason239/rl-dssm/blob/master/generate_dataset.py)
 
 Скрипт для создания датасетов для обучения, валидации или оценке на "синтетических" данных.
 
-#### gridworld.py
+#### [gridworld.py](https://github.com/Reason239/rl-dssm/blob/master/gridworld.py)
 
 Файл с реализацией тестовой среды, согласованной с интерфейсом OpenAI Gym.
 
-####  inspect_embeds.py
+####  [inspect_embeds.py](https://github.com/Reason239/rl-dssm/blob/master/inspect_embeds.py)
 
 Скрипт для визуализации "кластеров" векторов, соответствующих каждому из векторов квантизации в квантизованной модели.
 
-#### main.py
+#### [main.py](https://github.com/Reason239/rl-dssm/blob/master/main.py)
 
 Основной скрипт, который запускается для обучени одной модели или для проведения серии экспериментов. Параметры задаются вручную в этом файле. Обуение одной модели в течение 60 эпох занимает примерно 20-25 минут на CPU, 10-15 минут на GPU.
 
-#### next_state_prediction.py
+#### [next_state_prediction.py](https://github.com/Reason239/rl-dssm/blob/master/next_state_prediction.py)
 
 Скрипт для визуализации предсказания следующих состояний моделью. Высодит состояние и топ возможных следующих состояний по оценку моделью. Не вошёл в тест диплома, потому что я зыбыл про него.
 
-#### play_env.py
+#### [play_env.py](https://github.com/Reason239/rl-dssm/blob/master/play_env.py)
 
 Маленький скрипт для воспроизведения экспертной траектории в среде.
 
-#### train_dssm.py
+#### [train_dssm.py](https://github.com/Reason239/rl-dssm/blob/master/train_dssm.py)
 
 Файл, в котором реализована процедура обучения модели. Содердит мастер-функцию, которую вызывает main.py.
 
-#### utils.py
+#### [utils.py](https://github.com/Reason239/rl-dssm/blob/master/utils.py)
 
 Файл с различными вспомогательными классами и функциями. 
