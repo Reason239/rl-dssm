@@ -1,12 +1,13 @@
+"""Contains a master-function for model training"""
+
 import comet_ml
 
-from utils import DatasetFromPickle, BatchIterator, ValidationBatchIterator
+from utils import BatchIterator, EvaluationBatchIterator
 from dssm import DSSM, DSSMEmbed, DSSMReverse
 
 import numpy as np
 import torch
 from torch import nn
-from torch.utils.data import DataLoader
 import json
 import pickle
 from tqdm import tqdm
@@ -15,6 +16,20 @@ from collections import defaultdict
 
 
 def run_model(model, optimizer, batches, device, criterion, target, mode, do_quantize, downscale_factor=1):
+    """Runs a model for one epoch
+
+    :param model: the model
+    :param optimizer: the optimizer
+    :param batches: an iterator that dispatches batches
+    :param device: device to use (usually 'cpu' or 'cuda')
+    :param criterion: the loss function (cross-entropy)
+    :param target: target for the loss
+    :param mode: 'train' for training, 'validate' for validation on a test dataset, or 'evaluate' for evaluation
+        on a 'synthetic' dataset
+    :param do_quantize: whether to use quantisation in a DSSMEmbed model
+    :param downscale_factor: should be equal to n_negatives + 1 for 'synthetic' datasets
+    :return: dict with average accuracy, losses and quantisation vectors usage statistics
+    """
     assert mode in ['train', 'validate', 'evaluate']
     losses = defaultdict(float)
     n_correct = 0
@@ -26,12 +41,12 @@ def run_model(model, optimizer, batches, device, criterion, target, mode, do_qua
         model.eval()
     batches.refresh()
     for ind, (s, s_prime) in enumerate(batches):
-        # get the inputs
+        # Get the inputs
         s = s.to(device)
         s_prime = s_prime.to(device)
 
         if mode == 'train':
-            # zero the parameter gradients
+            # Zero the parameter gradients
             optimizer.zero_grad()
 
         # forward + backward + optimize
@@ -69,6 +84,30 @@ def train_dssm(model, experiment_name, dataset_name='int_1000', evaluate_dataset
                evaluate_batch_size=64, use_comet=False, comet_tags=None, comet_disabled=False, save=False,
                n_trajectories=16, pairs_per_trajectory=4, n_epochs=60, patience_ratio=1, device='cpu', do_eval=True,
                do_quantize=True, model_kwargs=None, train_on_synthetic_dataset=False):
+    """The master-function for training a model
+
+    :param model: the model
+    :param experiment_name: name for local saves and Comet.ml
+    :param dataset_name: name of the training and test datasets directory inside datasets/
+    :param evaluate_dataset_name: name of the 'synthetic' evaluation dataset directory inside datasets/
+    :param n_negatives: number of negatives for each positive in the 'synthetic' evaluation dataset
+    :param evaluate_batch_size: batch_size to use for the evaluation (or training on the 'synthetic' data)
+        tha actual batch size will be (n_negatives + 1) times larger
+    :param use_comet: bool, whether to use Comet.ml
+    :param comet_tags: tags for the Comet.ml experiment
+    :param comet_disabled: bool, whether to disable Comet.ml logging (for debugging)
+    :param save: bool, whether to save results locally
+    :param n_trajectories: number of trajectories used for a batch
+    :param pairs_per_trajectory: number of pairs from each trajectory used for a batch
+    :param n_epochs: number of training epochs
+    :param patience_ratio: if the validation quality is not increased for n_epocs * patience_ration epochs, initiates
+        early stopping
+    :param device: device to use (usually 'cpu' or 'cuda')
+    :param do_eval: bool. whether to perform valifdation and evaluation
+    :param do_quantize: whether to use quantisation in a DSSMEmbed model
+    :param model_kwargs: model arguments (just for logging)
+    :param train_on_synthetic_dataset: bool, whether the training dataset is 'synthetic'
+    """
     np.random.seed(42)
     dataset_path = f'datasets/{dataset_name}/'
     evaluate_dataset_path = f'datasets/{evaluate_dataset_name}/'
@@ -96,25 +135,21 @@ def train_dssm(model, experiment_name, dataset_name='int_1000', evaluate_dataset
         experiment_path.mkdir(parents=True, exist_ok=True)
 
     # Prepare datasets
-    # train_dataset = DatasetFromPickle(dataset_path + 'train.pkl')
-    # test_dataset = DatasetFromPickle(dataset_path + 'test.pkl')
-    #
-    # train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
-    # test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True, drop_last=True)
     if not train_on_synthetic_dataset:
         train_batches = BatchIterator(dataset_path + 'train.pkl', dataset_path + 'idx_train.pkl',
                                       n_trajectories, pairs_per_trajectory, None, dtype_for_torch)
         test_batches = BatchIterator(dataset_path + 'test.pkl', dataset_path + 'idx_test.pkl',
                                      n_trajectories, pairs_per_trajectory, None, dtype_for_torch)
     else:
-        train_batches = ValidationBatchIterator(dataset_path + 'train.pkl', dataset_path + 'idx_train.pkl',
+        train_batches = EvaluationBatchIterator(dataset_path + 'train.pkl', dataset_path + 'idx_train.pkl',
                                                 n_negatives, evaluate_batch_size, dtype_for_torch)
-        test_batches = ValidationBatchIterator(dataset_path + 'test.pkl', dataset_path + 'idx_test.pkl',
+        test_batches = EvaluationBatchIterator(dataset_path + 'test.pkl', dataset_path + 'idx_test.pkl',
                                                n_negatives, evaluate_batch_size, dtype_for_torch)
-    evaluate_batches = ValidationBatchIterator(evaluate_dataset_path + 'evaluate.pkl',
+    evaluate_batches = EvaluationBatchIterator(evaluate_dataset_path + 'evaluate.pkl',
                                                evaluate_dataset_path + 'idx_evaluate.pkl', n_negatives,
                                                evaluate_batch_size, dtype_for_torch)
 
+    # Setup other training stuff
     criterion = nn.CrossEntropyLoss()
     downscale_factor = n_negatives + 1
     evaluate_target = torch.zeros(evaluate_batch_size, dtype=torch.long).to(device)
@@ -133,10 +168,10 @@ def train_dssm(model, experiment_name, dataset_name='int_1000', evaluate_dataset
 
     model = model.to(device)
 
-    # training loop
+    # Training loop
     tqdm_range = tqdm(range(n_epochs))
     for epoch in tqdm_range:
-        # train
+        # Train
         mode = 'train'
         results = run_model(model, optimizer, train_batches, device, criterion, target, mode, do_quantize,
                             train_downscale_factor)
@@ -181,7 +216,7 @@ def train_dssm(model, experiment_name, dataset_name='int_1000', evaluate_dataset
                     if key != 'z_inds_count':
                         comet_experiment.log_metric(f'{mode}_{key}', value, epoch=epoch)
 
-            # save model (best)
+            # Save model (best) locally
             if test_accs[-1] > best_test_acc:
                 best_test_acc = test_accs[-1]
                 best_epoch = epoch
@@ -189,7 +224,7 @@ def train_dssm(model, experiment_name, dataset_name='int_1000', evaluate_dataset
                     torch.save(model.state_dict(), experiment_path / 'best_model.pth')
             tqdm_range.set_postfix(test_acc=test_accs[-1], eval_acc=results['accuracy'])
 
-            # stop if test accuracy isn't going up
+            # Stop if validation accuracy isn't going up
             if epoch > best_epoch + patience:
                 n_epochs_run = epoch
                 break
@@ -197,10 +232,10 @@ def train_dssm(model, experiment_name, dataset_name='int_1000', evaluate_dataset
             if save:
                 torch.save(model.state_dict(), experiment_path / 'best_model.pth')
     else:
-        # if not break:
+        # If not break:
         n_epochs_run = n_epochs
 
-    # save experiment data
+    # Save experiment data and log to Comet.ml
     if save or use_comet:
         info = dict(dataset_path=dataset_path, batch_size=batch_size, n_trajectories=n_trajectories,
                     pairs_per_trajectory=pairs_per_trajectory, n_epochs=n_epochs, n_epochs_run=n_epochs_run,

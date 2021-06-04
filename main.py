@@ -1,21 +1,22 @@
+"""The main script that is executed for the model training experiments. No command-line options support yet"""
+
 import comet_ml
 import torch
+
 from train_dssm import train_dssm
 from dssm import DSSM, DSSMEmbed, DSSMReverse
 from utils import get_parameters_list
 
-# dataset_name = 'int_1000'
-dataset_name = 'synth_int_20480_n4'
-train_on_synthetic_dataset = 'synth' in dataset_name
-evaluate_dataset_name = 'evaluate_int_1024_n4'
+# Parameters configuration (refer to train_dssm.train_dssm() function documentation)
+dataset_name = 'all_1000'
+# dataset_name = 'synth_int_20480_n4'
+evaluate_dataset_name = 'evaluate_bool_1024_n4'
 n_negatives = 4
 evaluate_batch_size = 64
-experiment_name = 'synth_quant_q10_'
-model_type = 'DSSMEmbed'
+experiment_name = 'reg_test'
+model_type = 'DSSM'
 use_comet = True
 comet_tags = [model_type]
-if train_on_synthetic_dataset:
-    comet_tags += ['synth']
 comet_disabled = False  # For debugging
 save = True
 n_trajectories = 16
@@ -25,14 +26,14 @@ patience_ratio = 1.
 embed_size = 64
 device = 'cpu'
 do_eval = True
-# DSSMEmbed
+# for DSSMEmbed model
 embed_conv_size = None
-# DSSMReverse
+# for DSSMReverse model (in development)
 embed_conv_channels = [3, 3]
 phi_conv_channels = [16, 32]
 fc_sizes = [embed_size, embed_size]
 do_normalize = False
-# DSSMEmbed and DSSMReverse
+# For both DSSMEmbed and DSSMReverse models
 state_embed_size = 3
 n_z = 10
 commitment_cost = 0.25  # strength of encoder penalty for distance from quantized embeds
@@ -42,6 +43,12 @@ distance_loss_coef = 0.1  # coefficient of distance losses in total loss
 dssm_eps = 1e-4  # epsilon for normalization of DSSM embeds
 do_quantize = True  # effectively turns DSSMEmbed into DSSM with state embeddings
 
+# Automatic config
+train_on_synthetic_dataset = 'synth' in dataset_name
+if train_on_synthetic_dataset:
+    comet_tags += ['synth']
+
+# Make a model instance, remember the parameters
 if model_type == 'DSSM':
     base_model_parameters = dict(in_channels=7, height=5, width=5, embed_size=embed_size)
     model = DSSM(**base_model_parameters)
@@ -65,22 +72,26 @@ elif model_type == 'DSSMReverse':
 else:
     raise Exception(f'Incorrect model_type {model_type}, should be "DSSM", "DSSMEmbed" of "DSSMReverse"')
 
+# Remember the experiment parameters specified in the config
 base_parameters = dict(model=model, experiment_name=experiment_name, evaluate_dataset_name=evaluate_dataset_name,
                        n_negatives=n_negatives, evaluate_batch_size=evaluate_batch_size, dataset_name=dataset_name,
                        use_comet=use_comet, comet_tags=comet_tags, comet_disabled=comet_disabled, save=save,
                        n_trajectories=n_trajectories, pairs_per_trajectory=pairs_per_trajectory, n_epochs=n_epochs,
                        patience_ratio=patience_ratio, device=device, do_eval=do_eval, do_quantize=do_quantize,
                        train_on_synthetic_dataset=train_on_synthetic_dataset)
+
+# Config for a grid search or a series of experiments
+parameters_mode = None  # None, 'gs' or 'series'
 parameters_to_vary = {}
 model_parameters_to_vary = {'embed_conv_size': [None, 3],
                             'dssm_z_loss_coef': [None, 1.],
                             'n_z': [10, 50]}
-parameters_mode = None
 
 if parameters_mode is None:
     print('Running a single experiment')
     train_dssm(model_kwargs=base_model_parameters, **base_parameters)
 else:
+    # Run several experiments
     all_parameters_list = get_parameters_list(base_parameters, parameters_to_vary,
                                               base_model_parameters, model_parameters_to_vary, mode=parameters_mode)
     total = len(all_parameters_list)

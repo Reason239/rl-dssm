@@ -1,8 +1,23 @@
+"""Here the DSSM models are implemented"""
+
 import torch
 from torch import nn
 
 
 def calculate_inner_product_matrix(vectors1, vectors2, downscale_factor=1):
+    """Calculates a matrix, containing inner products of two sets of vectors.
+
+    If downscale_factor = 1, then it is a regular matrix multiplication of vectors1 and vectors2.T
+    If downscale_factor = k > 1, then takes every k-th vector from vectors1 and takes its products only with
+    a corresponding block of k vectors from vactors2. This is needed for training on a synthetic dataset, where we want
+    to compare a positive only to its corresponding negatives and not to others: downscale_factor = n_negatives + 1
+
+    :param vectors1: torch tensor of shape (batch_size * downscale_factor, embedding_size)
+    :param vectors2: torch tensor of shape (batch_size * downscale_factor, embedding_size)
+    :param downscale_factor: 1 or a divisor of vectors.shape[0]
+    :return: torch tensor of shape (batch_size, batch_size) for downscale_factor = 1 or
+        shape (batch_size, downscale_factor) for downscale_factor > 1
+    """
     if downscale_factor == 1:
         return torch.matmul(vectors1, torch.transpose(vectors2, 0, 1))
     assert vectors1.shape[0] % downscale_factor == 0
@@ -14,7 +29,21 @@ def calculate_inner_product_matrix(vectors1, vectors2, downscale_factor=1):
 
 
 class DSSM(nn.Module):
+    """
+    'Basic' DSSM model.
+
+    Accepts a batch of (s, s') pairs and calculates the matrix for the DSSM loss.
+    """
+
     def __init__(self, in_channels=7, height=5, width=5, embed_size=64):
+        """'Basic' model accepts observations from the 'bool' format in torch.float32 dtype and shape
+        (batch_size, height, width, in_channels)
+
+        :param in_channels: number of channels in the input observations. Equal to 2 * num_buttons + 1
+        :param height: height of the environment gridworld (of the input 'image')
+        :param width: width of the environment gridworld (of the input 'image')
+        :param embed_size: dimension of the generated embeddings of s and s' (before inner product)
+        """
         super().__init__()
         self.relu = nn.ReLU()
 
@@ -37,6 +66,11 @@ class DSSM(nn.Module):
         self.scale = torch.nn.Parameter(torch.ones((1,)))
 
     def phi1(self, s):
+        """The first DSSM 'tower'. Generates an embedding of a state
+
+        :param s: state observation (or representation)
+        :return: embedding
+        """
         x1 = self.relu(self.phi1_conv1(s))
         x1 = self.relu(self.phi1_conv2(x1))
         x1 = torch.flatten(x1, start_dim=1)
@@ -44,6 +78,11 @@ class DSSM(nn.Module):
         return embed1
 
     def phi2(self, diff):
+        """The second DSSM 'tower'. Generates an embedding of a state transition.
+
+        :param diff: state transition (difference of two state representations)
+        :return: embedding
+        """
         x2 = self.relu(self.phi2_conv1(diff))
         x2 = self.relu(self.phi2_conv2(x2))
         x2 = torch.flatten(x2, start_dim=1)
@@ -51,12 +90,17 @@ class DSSM(nn.Module):
         return embed2
 
     def forward(self, x, downscale_factor=1):
+        """
+
+        :param x: tuple of s and s' batches of some batch_size
+        :param downscale_factor: should be equal to n_negatives + 1 for 'synthetic' datasets
+        :return: torch tensor of shape (batch_size, batch_size) when downscale_factor = 1 or
+            (synthetic batch size, downscale_factor) for downscale_factor > 1 - pairwise fitness scores
+            (refer to calculate_inner_product_matrix function)
+        """
         s, s_prime = x
-        # s, s_prime = embed(s), embed(s_prime)
 
         embed1 = self.phi1(s)
-
-        # TODO what if just s_prime. Will easily see the button configuration
         embed2 = self.phi2(s_prime - s)
 
         # calculate inner products (usually it's Gramm matrix)
@@ -66,6 +110,14 @@ class DSSM(nn.Module):
         return output
 
     def forward_and_loss(self, x, criterion, target, downscale_factor=1):
+        """Calculates both output of the model and the loss.
+
+        :param x: tuple of s and s' batches of some batch_size
+        :param criterion: loss function
+        :param target: target for the loss function
+        :param downscale_factor: should be equal to n_negatives + 1 for 'synthetic' datasets
+        :return: dict with output and losses (here only FPS-loss)
+        """
         output = self.forward(x, downscale_factor)
         total_loss = criterion(output, target)
         results = dict(output=output, total_loss=total_loss, dssm_loss=total_loss)
@@ -73,17 +125,49 @@ class DSSM(nn.Module):
 
 
 def normalized(matrix, eps=0.):
+    """L_2 normalises every row of a matrix of vectors. Adds eps to the denominator for stability"""
     return matrix / (torch.sqrt(torch.sum(matrix ** 2, dim=1, keepdim=True)) + eps)
 
 
 class DSSMEmbed(nn.Module):
+    """
+    DSSM model with quantization in the second 'tower'
+
+    Accepts a batch of (s, s') pairs and calculates the matrix for the DSSM loss.
+    """
+
     def __init__(self, dict_size=14, height=5, width=5, embed_size=64, state_embed_size=3, embed_conv_size=None,
                  n_z=5, eps=1e-4, commitment_cost=0.25, distance_loss_coef=1., dssm_embed_loss_coef=1.,
                  dssm_z_loss_coef=None, do_quantize=True):
+        """'Quantised' model accepts observations from the 'int' format in torch.int dtype and shape
+        (batch_size, height, width)
+
+        :param dict_size: size of the embedding dictionary. All of the values in the input should be in this range.
+            Equal to 2 * (2 * n_buttons + 1)
+        :param height: height of the environment gridworld (of the input 'image')
+        :param width: width of the environment gridworld (of the input 'image')
+        :param embed_size: dimension of the generated embeddings of s and s' (before inner product)
+        :param state_embed_size: dimension of an embedding vector for each of the possible dict_size linds of pixel s in
+            the image
+        :param embed_conv_size: None or number of channels for an additional (shared )conv layer in the beginning of
+            both towers for a more complex state representations
+        :param n_z: number of the quantization vectors
+        :param eps: epsilon for the normalization before the inner product calculation
+        :param commitment_cost: coefficient of encoder_latent_loss that penalises generated embeddings for being far
+            from the quantization vectors (refer to 'Neural Discrete Representation Learning' paper code:
+            https://github.com/deepmind/sonnet/blob/v2/sonnet/src/nets/vqvae.py)
+        :param distance_loss_coef: coefficient for the 'quantization' loss in the total loss. Penalises generated
+            embeddings and quantization vectors for being from each other
+        :param dssm_embed_loss_coef: coefficient of the FPS-loss. Gradients are transferred from the quantised vectors
+            to the ambeddings, generated by the second tower
+        :param dssm_z_loss_coef: None or coefficient of the FPS-loss. Gradients are left on the the quantised vectors
+        :param do_quantize: bool, whether to quantize the second tower's outputs. If False, effectively turns the model
+            to the 'basic' model, but with different state representation
+        """
         super().__init__()
         self.relu = nn.ReLU()
 
-        # state embedding
+        # Shared state embedding (representation)
         self.state_embed = nn.Embedding(dict_size, state_embed_size, max_norm=1)
         if embed_conv_size is not None:
             self.conv_embed = nn.Conv2d(in_channels=state_embed_size, out_channels=embed_conv_size, kernel_size=3,
@@ -112,7 +196,7 @@ class DSSMEmbed(nn.Module):
         self.phi2_conv2 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, padding=1)
         self.phi2_linear = nn.Linear(32 * height * width, embed_size)
 
-        # z vectors - quantized embeddings
+        # z vectors - quantized embeddings (quantization vectors)
         self.z_vectors = nn.Parameter(torch.randn(n_z, embed_size))
 
         # alpha (temperature scale)
@@ -120,15 +204,22 @@ class DSSMEmbed(nn.Module):
 
     @property
     def z_vectors_norm(self):
+        """Normalised quantisation vectors"""
         return normalized(self.z_vectors, eps=0)
 
     def embed(self, s):
+        """Generates an embedding (representation) of a state (observation) for later use in the towers"""
         x = self.state_embed(s).permute(0, 3, 1, 2)
         if self.conv_embed:
             x = self.conv_embed(x)
         return x
 
     def phi1(self, s):
+        """The first DSSM 'tower'. Generates an embedding of a state
+
+        :param s: state observation (or representation)
+        :return: embedding
+        """
         x1 = self.relu(self.phi1_conv1(s))
         x1 = self.relu(self.phi1_conv2(x1))
         x1 = torch.flatten(x1, start_dim=1)
@@ -137,6 +228,11 @@ class DSSMEmbed(nn.Module):
         return embed1
 
     def phi2(self, diff):
+        """The second DSSM 'tower'. Generates a (quantised) embedding of a state transition.
+
+        :param diff: state transition (difference of two state representations)
+        :return: embedding
+        """
         x2 = self.relu(self.phi2_conv1(diff))
         x2 = self.relu(self.phi2_conv2(x2))
         x2 = torch.flatten(x2, start_dim=1)
@@ -145,6 +241,14 @@ class DSSMEmbed(nn.Module):
         return embed2
 
     def forward(self, x, downscale_factor=1):
+        """
+
+        :param x: tuple of s and s' batches of some batch_size
+        :param downscale_factor: should be equal to n_negatives + 1 for 'synthetic' datasets
+        :return: torch tensor of shape (batch_size, batch_size) when downscale_factor = 1 or
+            (synthetic batch size, downscale_factor) for downscale_factor > 1 - pairwise fitness scores
+            (refer to calculate_inner_product_matrix function)
+        """
         s, s_prime = x
         s_embed = self.embed(s)
         s_prime_embed = self.embed(s_prime)
@@ -152,7 +256,7 @@ class DSSMEmbed(nn.Module):
         embed1 = self.phi1(s_embed)
         embed2 = self.phi2(s_prime_embed - s_embed)
 
-        # quantize
+        # Quantize
         if self.do_quantize:
             z_vectors_norm = self.z_vectors_norm
             z_inds = torch.argmax(torch.matmul(embed2, z_vectors_norm.T), dim=1)
@@ -160,15 +264,24 @@ class DSSMEmbed(nn.Module):
         else:
             z_matrix = embed2
 
-        # calculate inner products (Gram matrix)
+        # Calculate inner products (Gram matrix)
         inner_product_matrix = calculate_inner_product_matrix(embed1, z_matrix, downscale_factor)
 
-        # apply (positive) temperature scaling
+        # Apply (positive) temperature scaling
         output = torch.exp(self.scale) * inner_product_matrix
 
         return output
 
     def forward_and_loss(self, x, criterion, target, downscale_factor=1):
+        """Calculates both output of the model and the losses.
+
+        :param x: tuple of s and s' batches of some batch_size
+        :param criterion: loss function
+        :param target: target for the loss function
+        :param downscale_factor: should be equal to n_negatives + 1 for 'synthetic' datasets
+        :return: dict with output and losses (total loss, quantization loss, FPS-loss) and also counts of vectors
+            clipped to each of the quantization vectors (for statistics)
+        """
         if self.do_quantize:
             s, s_prime = x
             s_embed = self.embed(s)
@@ -177,7 +290,7 @@ class DSSMEmbed(nn.Module):
             embed1 = self.phi1(s_embed)
             embed2 = self.phi2(s_prime_embed - s_embed)
 
-            # quantize
+            # Quantize
             z_vectors_norm = self.z_vectors_norm
             z_inds = torch.argmax(torch.matmul(embed2, z_vectors_norm.T), dim=1)
             z_matrix = z_vectors_norm[z_inds]
@@ -190,11 +303,11 @@ class DSSMEmbed(nn.Module):
             # Gradients flow to phi2 parameters
             z_matrix_from_embed = embed2 + (z_matrix - embed2).detach()
 
-            # calculate inner products (Gram matrix)
+            # Calculate inner products (Gram matrix)
             inner_product_matrix_from_embed = calculate_inner_product_matrix(embed1, z_matrix_from_embed,
                                                                              downscale_factor)
 
-            # apply (positive) temperature scaling
+            # Apply (positive) temperature scaling
             output_from_embed = torch.exp(self.scale) * inner_product_matrix_from_embed
 
             dssm_loss_from_embed = criterion(output_from_embed, target)
@@ -214,6 +327,7 @@ class DSSMEmbed(nn.Module):
 
             return results
         else:
+            # No quantization
             output = self.forward(x, downscale_factor)
             total_loss = criterion(output, target)
             results = dict(output=output, total_loss=total_loss, encoder_latent_loss=torch.Tensor([0]),
@@ -221,6 +335,7 @@ class DSSMEmbed(nn.Module):
             return results
 
 
+# The following model is under development
 def run_modules(x, modules, last_activation=False):
     if modules is None:
         return x

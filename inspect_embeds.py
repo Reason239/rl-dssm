@@ -1,7 +1,11 @@
+"""Script for embedding 'clusters' visualisation and heatmaps for the quantized model"""
+
 import comet_ml
+
 from utils import get_old_experiment, DatasetFromPickle, my_collate_fn
 from dssm import DSSMEmbed
 from gridworld import join_grids, grid_from_state_data, stage_and_pos_from_state_data
+
 import pathlib
 import numpy as np
 from collections import defaultdict
@@ -11,12 +15,13 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 
+# Parameters configuration
 experiment_path_base = pathlib.Path('experiments')
 dataset_path = pathlib.Path('datasets/int_1000')
-part = 'train'
-experiment_name = 'quant_q10'
-n_z = 10
-show_closest = False
+part = 'train'  # 'train' or 'test' part af the dataset to use
+experiment_name = 'quant_q50'
+n_z = 50
+show_closest = False  # Whether to show examples closest to the embeddings, or draw them uniformly
 save_local = True
 save_comet = False
 comet_num = -1
@@ -29,8 +34,12 @@ figsize = (16, 16)
 pixels_per_tile = 10
 pixels_between = pixels_per_tile // 2
 grid_size = (5, 5)
+n_buttons = 3
 
-model = DSSMEmbed(n_z=n_z)
+model_kwargs = dict(dict_size=14, height=5, width=5, embed_size=64, state_embed_size=3, embed_conv_size=None,
+                    n_z=n_z, eps=1e-4, commitment_cost=0.25, distance_loss_coef=1., dssm_embed_loss_coef=1.,
+                    dssm_z_loss_coef=None, do_quantize=True)
+model = DSSMEmbed(**model_kwargs)
 model_path = experiment_path_base / experiment_name / 'best_model.pth'
 if not model_path.exists():
     raise Exception(f'No model state dict in {model_path}')
@@ -38,7 +47,6 @@ model.load_state_dict(torch.load(model_path))
 z_vectors_norm = model.z_vectors_norm
 model.eval()
 
-n_buttons = 3
 dataset = DatasetFromPickle(dataset_path / f'{part}.pkl', dtype='int',
                             state_data_path=dataset_path / f'state_data_{part}.pkl')
 dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False, drop_last=False, collate_fn=my_collate_fn)
@@ -72,7 +80,7 @@ for (s, s_prime), (s_data, s_prime_data) in tqdm(dataloader):
         everything[z_ind].append(((one_s_data, one_s_prime_data), distance, embed_hash))
         hash_counts[embed_hash] += 1
 
-
+# # Debugging
 # s_prime_stages_raw = []
 # s_prime_stages_filtered = []
 # for (s, s_prime), (s_data, s_prime_data) in tqdm(dataloader):
@@ -128,24 +136,34 @@ for z_ind in tqdm(range(n_z)):
     plt.clf()
     plt.close(fig)
 
+
 def create_heat_plot(z_ind, matrix_stage, matrix_pos_s, matrix_pos_s_prime, save_local, save_path_base, save_comet,
                      comet_experiment):
+    """Creates and saves (logs) a heatmap vIsUaLiSaTiOn plot
+
+    :param z_ind: index of the quantization vector
+    :param matrix_stage: matrix of stages counts
+    :param matrix_pos_s: matrix of agent positions in s counts
+    :param matrix_pos_s_prime: matrix of agent positions in s' counts
+    :param save_local: bool, whether to save locally
+    :param save_path_base: directory to save locally
+    :param save_comet: bool, whether to log images to Comet.ml
+    :param comet_experiment: Comet.ml experiment to log to
+    """
     fig = plt.figure(constrained_layout=True, figsize=(10, 14))
     gs = GridSpec(3, 2, figure=fig)
     ax1 = fig.add_subplot(gs[0:2, :])
     ax1.set_title(f'Stages for embedding {z_ind}')
     ax1.imshow(matrix_stage, cmap='Blues')
-    # ax1.colorbar()
 
     ax2 = fig.add_subplot(gs[2, 0])
     ax2.set_title('Pos in s')
     ax2.imshow(matrix_pos_s, cmap='Blues')
-    # ax2.colorbar()
 
     ax3 = fig.add_subplot(gs[2, 1])
     ax3.set_title('Pos in s\'')
     ax3.imshow(matrix_pos_s_prime, cmap='Blues')
-    # ax3.colorbar()
+
     fig_name = f'e_heat_{z_ind}.png'
     if save_local:
         plt.savefig(fname=save_path_base / f'{fig_name}.png')
@@ -182,5 +200,6 @@ for z_ind in tqdm(range(n_z)):
     create_heat_plot(z_ind, matrix_stage, matrix_pos_s, matrix_pos_s_prime, save_local, save_path_base, save_comet,
                      comet_experiment)
 
+# Create a reference heatplot of ALL of the embeddings
 create_heat_plot('TOTAL', matrix_stage_global, matrix_pos_s_global, matrix_pos_s_prime_global, save_local,
                  save_path_base, save_comet, comet_experiment)

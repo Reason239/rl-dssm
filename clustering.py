@@ -1,9 +1,9 @@
+"""Script for clusters visualisation and heatmaps for the 'basic' model"""
+
 from utils import DatasetFromPickle, my_collate_fn
 from gridworld import join_grids, grid_from_state_data, stage_and_pos_from_state_data
-from dssm import DSSM, DSSMEmbed
+from dssm import DSSM
 
-from collections import Counter, defaultdict
-from pprint import pprint
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
@@ -13,11 +13,11 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 import pathlib
 import pickle
-from scipy.stats import entropy
 
+# Parameters configuration
 dataset_path = pathlib.Path('datasets/all_100')
 experiment_path_base = pathlib.Path('experiments')
-experiment_name = 'reg'
+experiment_name = 'reg_test'
 clustering_name = 'clustering_10'
 save_path = experiment_path_base / experiment_name / clustering_name
 save_path.mkdir(parents=True, exist_ok=True)
@@ -30,11 +30,14 @@ figsize = (14, 14)
 pixels_per_tile = 10
 pixels_between = pixels_per_tile // 2
 
+model_kwargs = dict(in_channels=7, height=5, width=5, embed_size=embed_size)
+
 train_dataset = DatasetFromPickle(dataset_path / 'train.pkl', 'bool', dataset_path / 'state_data_train.pkl')
 train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False, drop_last=False,
                               collate_fn=my_collate_fn)
 x_raw_path = save_path / 'x_raw.pkl'
 kmeans_path = save_path / 'kmeans.pkl'
+# Check for cached clustering results
 if x_raw_path.exists() and kmeans_path.exists():
     print('Loading precomputed clustering')
     with open(x_raw_path, 'rb') as f:
@@ -44,7 +47,7 @@ if x_raw_path.exists() and kmeans_path.exists():
 else:
     print('Clustering')
 
-    model = DSSM(in_channels=7, height=5, width=5, embed_size=embed_size)
+    model = DSSM(**model_kwargs)
     model.eval()
     model.load_state_dict(torch.load(experiment_path_base / experiment_name / 'best_model.pth'))
 
@@ -75,7 +78,8 @@ print(f'Unique data shape: {x.shape}')
 centers = kmeans.cluster_centers_
 
 
-def make_plots(dtype='bool', n_buttons=3):
+def make_plots():
+    """An ugly function to make cluster visualization from global variables"""
     for ind_cluster, center in tqdm(enumerate(centers)):
         fig, axes = plt.subplots(nrows=n_rows, ncols=n_cols, figsize=figsize)
         for row in axes:
@@ -96,7 +100,6 @@ def make_plots(dtype='bool', n_buttons=3):
             ax.imshow(grid)
             ax.set_title(f'Distance: {distances[indices_sorted[display_index]]:.0f}')
         fig.suptitle(f'Cluster {ind_cluster}. n_elements: {(raw_labels == ind_cluster).sum()}, n_unique: {len(cur_x)}')
-        # plt.tight_layout()
         plt.savefig(fname=save_path / f'cluster_{ind_cluster}.png')
         plt.cla()
         plt.clf()
@@ -106,13 +109,12 @@ def make_plots(dtype='bool', n_buttons=3):
 colors = ['red', 'green', 'blue', 'orange', 'purple']
 
 
-def compute_statistics(dtype='bool', n_buttons=3, grid_size=(5, 5)):
+def compute_statistics(n_buttons=3, grid_size=(5, 5)):
+    """An ugly function to make heatplots"""
     info = [{} for c in centers]
     for ind_cluster, (center, info_dict) in tqdm(enumerate(zip(centers, info)), total=len(centers)):
         raw_mask = (raw_labels == ind_cluster)
-        cur_x_raw = x_raw[raw_mask]
         cur_raw_indices = np.arange(len(x_raw))[raw_mask]
-        n_elements = raw_mask.sum()
         matrix_stage = np.zeros((3 * n_buttons, 3 * n_buttons))
         matrix_pos_s = np.zeros(grid_size)
         matrix_pos_s_prime = np.zeros(grid_size)
@@ -128,22 +130,20 @@ def compute_statistics(dtype='bool', n_buttons=3, grid_size=(5, 5)):
         ax1 = fig.add_subplot(gs[0:2, :])
         ax1.set_title(f'Stages for cluster {ind_cluster}')
         ax1.imshow(matrix_stage, cmap='Blues')
-        # ax1.colorbar()
 
         ax2 = fig.add_subplot(gs[2, 0])
         ax2.set_title('Pos in s')
         ax2.imshow(matrix_pos_s, cmap='Blues')
-        # ax2.colorbar()
 
         ax3 = fig.add_subplot(gs[2, 1])
         ax3.set_title('Pos in s\'')
         ax3.imshow(matrix_pos_s_prime, cmap='Blues')
-        # ax3.colorbar()
         plt.savefig(fname=save_path / f'heat_{ind_cluster}.png')
         plt.cla()
         plt.clf()
         plt.close(fig)
 
+
 if __name__ == '__main__':
-    # make_plots()
+    make_plots()
     compute_statistics()
