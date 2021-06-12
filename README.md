@@ -2,7 +2,7 @@
 
 Бакалаврская дипломная работа Тыщука Кирилла на СПбГУ МКН
 
-[Текст дипломной работы](https://github.com/Reason239/rl-dssm/blob/master/extra%20meterials/Thesis_v2.pdf)
+[Текст дипломной работы](https://github.com/Reason239/rl-dssm/blob/master/extra%20materials/Thesis_v2.pdf)
 
 [Данные экспериментов на Comet.ml](https://www.comet.ml/reason239/gridworld-dssm/view/5BBniF9PhAd5KtWADLjcWCc5A)
 
