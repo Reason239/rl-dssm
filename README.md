@@ -2,7 +2,7 @@
 
 Бакалаврская дипломная работа Тыщука Кирилла на СПбГУ МКН
 
-[Текст дипломной работы](https://github.com/Reason239/rl-dssm/blob/master/extra%20meterials/Thesis_v1.pdf)
+[Текст дипломной работы](https://github.com/Reason239/rl-dssm/blob/master/extra%20meterials/Thesis_v2.pdf)
 
 [Данные экспериментов на Comet.ml](https://www.comet.ml/reason239/gridworld-dssm/view/5BBniF9PhAd5KtWADLjcWCc5A)
 
@@ -20,7 +20,7 @@
 
 Директория с данными экспериментов: сохранённые модели, визуализации и т. д.
 
-#### [extra materials/](https://github.com/Reason239/rl-dssm/tree/master/extra%20meterials)
+#### [extra materials/](https://github.com/Reason239/rl-dssm/tree/master/extra%20materials)
 
 Директория с дополнительными материалами: текст работы, ссылки на использованные материалы о OpenAI Gym.
 
