@@ -1,3 +1,11 @@
+# Applicability of a ranking DSSM-model for Hierarchical Reinforcement Learning
+
+Bachelor thesis of Kirill Tyshchuk at the Department of Mathematics and Computer Science, SPbSU
+
+### Abstract
+
+One of the intriguing open challenges in the field of Reinforcement Learning is the processing of expert demonstrations data with the purpose of more efficient training of new agents to perform similar tasks. One of the possible approaches is the extraction of macro-abstractions or patterns that are common to all of the demonstrated tasks. It is similar to a situation, in which we observe someone playing a game, get a rough concept of what is going on there and, when we get to play, learn very fast. In this work a method based on a ranking DSSM model is implemented along with the environment and instruments for studying its advantages and limitations. Taking into account the results of the analysis, the baseline model is refined. The resulting models show decent quality on a synthetic dataset.
+
 # Применимость ранжирующей DSSM-модели для иерархического обучения с подкремпелнием
 
 Бакалаврская дипломная работа Тыщука Кирилла на СПбГУ МКН
